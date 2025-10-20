@@ -1,0 +1,320 @@
+<template>
+  <div class="dashboard">
+    <div class="dashboard-header">
+      <h1>My Trips</h1>
+      <button @click="showCreateTripModal = true" class="create-trip-btn">
+        <span class="plus-icon">+</span>
+        Create New Trip
+      </button>
+    </div>
+
+    <LoadingSpinner
+      v-if="loading"
+      message="Loading your trips..."
+      :centered="true"
+    />
+
+    <EmptyState
+      v-else-if="trips.length === 0"
+      icon="🗺️"
+      title="No trips yet"
+      description="Create your first trip to start planning your group getaway!"
+      action-text="Create Your First Trip"
+      @action="showCreateTripModal = true"
+    />
+
+    <div v-else class="trips-grid">
+      <TripCard
+        v-for="trip in trips"
+        :key="trip.id"
+        :trip="trip"
+        @click="viewTrip"
+        @edit="editTrip"
+        @delete="deleteTrip"
+      />
+    </div>
+
+    <!-- Create Trip Modal -->
+    <Modal
+      :is-open="showCreateTripModal"
+      title="Create New Trip"
+      @close="closeModal"
+    >
+      <form @submit.prevent="handleCreateTrip" class="modal-form">
+        <FormInput
+          id="tripName"
+          v-model="newTrip.name"
+          label="Trip Name"
+          placeholder="Enter trip name"
+          required
+        />
+
+        <FormInput
+          id="tripDestination"
+          v-model="newTrip.destination"
+          label="Destination"
+          placeholder="Enter trip destination"
+          required
+        />
+
+        <div class="form-row">
+          <FormInput
+            id="startDate"
+            v-model="newTrip.startDate"
+            type="date"
+            label="Start Date"
+            required
+          />
+
+          <FormInput
+            id="endDate"
+            v-model="newTrip.endDate"
+            type="date"
+            label="End Date"
+            required
+          />
+        </div>
+      </form>
+
+      <template #footer>
+        <button type="button" class="modal-btn secondary" @click="closeModal">
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="modal-btn primary"
+          :disabled="creatingTrip"
+          @click="handleCreateTrip"
+        >
+          {{ creatingTrip ? 'Creating...' : 'Create Trip' }}
+        </button>
+      </template>
+    </Modal>
+  </div>
+</template>
+
+<script>
+import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useTripsStore } from '@/stores/trips'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import TripCard from '@/components/TripCard.vue'
+import Modal from '@/components/Modal.vue'
+import FormInput from '@/components/FormInput.vue'
+
+export default {
+  name: 'Dashboard',
+  components: {
+    LoadingSpinner,
+    EmptyState,
+    TripCard,
+    Modal,
+    FormInput
+  },
+  setup() {
+    const router = useRouter()
+    const authStore = useAuthStore()
+    const tripsStore = useTripsStore()
+
+    const showCreateTripModal = ref(false)
+    const creatingTrip = ref(false)
+
+    const newTrip = reactive({
+      name: '',
+      destination: '',
+      startDate: '',
+      endDate: ''
+    })
+
+    const loading = computed(() => tripsStore.loading)
+    const trips = computed(() => tripsStore.userTrips)
+
+    const viewTrip = trip => {
+      tripsStore.setCurrentTrip(trip)
+      router.push(`/trip/${trip.id}`)
+    }
+
+    const editTrip = trip => console.log('Edit trip:', trip)
+
+    const deleteTrip = async trip => {
+      if (
+        confirm(
+          `Are you sure you want to delete "${trip.name}"? This action cannot be undone.`
+        )
+      ) {
+        const result = await tripsStore.deleteTrip(trip.id)
+        if (!result.success) {
+          alert('Failed to delete trip: ' + result.error)
+        }
+      }
+    }
+
+    const handleCreateTrip = async () => {
+      if (!newTrip.name.trim() || !newTrip.destination.trim()) return
+
+      creatingTrip.value = true
+
+      const result = await tripsStore.createTrip({
+        owner: authStore.currentUser,
+        destination: newTrip.destination,
+        dateRange: {
+          start: newTrip.startDate,
+          end: newTrip.endDate
+        },
+        name: newTrip.name
+      })
+
+      creatingTrip.value = false
+
+      console.log(result, '`result`')
+
+      if (result.success) {
+        closeModal()
+        Object.assign(newTrip, {
+          name: '',
+          destination: '',
+          startDate: '',
+          endDate: ''
+        })
+      } else {
+        alert('Failed to create trip: ' + result.error)
+      }
+    }
+
+    const closeModal = () => {
+      showCreateTripModal.value = false
+      Object.assign(newTrip, {
+        name: '',
+        destination: '',
+        startDate: '',
+        endDate: ''
+      })
+    }
+
+    onMounted(async () => {
+      if (authStore.currentUser) {
+        await tripsStore.fetchUserTrips(authStore.currentUser)
+      }
+    })
+
+    return {
+      showCreateTripModal,
+      creatingTrip,
+      newTrip,
+      loading,
+      trips,
+      viewTrip,
+      editTrip,
+      deleteTrip,
+      handleCreateTrip,
+      closeModal
+    }
+  }
+}
+</script>
+
+<style scoped>
+.dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.dashboard-header h1 {
+  color: #2c3e50;
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.create-trip-btn {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.create-trip-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.plus-icon {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.trips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* --- Modal button styling --- */
+.modal-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.modal-btn.primary {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+}
+
+.modal-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.modal-btn.secondary {
+  background: #ecf0f1;
+  color: #34495e;
+}
+
+.modal-btn.secondary:hover {
+  background: #dfe6e9;
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .trips-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
