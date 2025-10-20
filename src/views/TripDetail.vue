@@ -41,23 +41,61 @@
               class="participant-card"
             >
               <div class="participant-info">
-                <span class="participant-name"
-                  >User {{ participant.user }}</span
-                >
+                <span class="participant-name">
+                  {{ getUserDisplayName(participant.user) }}
+                </span>
                 <span v-if="participant.user === trip.owner" class="owner-badge"
                   >Owner</span
                 >
-                <span class="participant-budget"
-                  >Budget: ${{ participant.budget }}</span
-                >
+                <div class="participant-budget-section">
+                  <span v-if="!participant.editing" class="participant-budget"
+                    >Budget: ${{ participant.budget }}</span
+                  >
+                  <input
+                    v-else
+                    v-model.number="participant.newBudget"
+                    type="number"
+                    class="budget-input"
+                    min="0"
+                    step="0.01"
+                    @keyup.enter="saveBudget(participant)"
+                    @keyup.esc="cancelBudgetEdit(participant)"
+                  />
+                </div>
               </div>
-              <button
-                v-if="isOwner && participant.user !== trip.owner"
-                @click="handleRemoveParticipant(participant.user)"
-                class="remove-btn"
-              >
-                Remove
-              </button>
+              <div class="participant-actions">
+                <button
+                  v-if="!participant.editing && (isOwner || participant.user === currentUserId)"
+                  @click="editBudget(participant)"
+                  class="edit-budget-btn"
+                  title="Edit budget"
+                >
+                  ✏️
+                </button>
+                <button
+                  v-if="participant.editing"
+                  @click="saveBudget(participant)"
+                  class="save-budget-btn"
+                  title="Save"
+                >
+                  ✓
+                </button>
+                <button
+                  v-if="participant.editing"
+                  @click="cancelBudgetEdit(participant)"
+                  class="cancel-budget-btn"
+                  title="Cancel"
+                >
+                  ✗
+                </button>
+                <button
+                  v-if="isOwner && participant.user !== trip.owner"
+                  @click="handleRemoveParticipant(participant.user)"
+                  class="remove-btn"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -97,7 +135,9 @@
                   <span v-if="event.pending" class="status-badge pending"
                     >⏳ Pending</span
                   >
-                  <span v-else-if="event.approved" class="status-badge approved"
+                  <span
+                    v-else-if="event.approved"
+                    class="status-badge approved"
                     >✅ Approved</span
                   >
                   <span v-else class="status-badge rejected">❌ Rejected</span>
@@ -149,13 +189,45 @@
       @close="closeAddParticipantModal"
     >
       <form @submit.prevent="handleAddParticipant" class="modal-form">
-        <FormInput
-          id="participantUserId"
-          v-model="newParticipant.userId"
-          label="User ID"
-          placeholder="Enter user ID"
-          required
-        />
+        <!-- User Search Input -->
+        <div class="search-container">
+          <FormInput
+            id="userSearch"
+            v-model="userSearchQuery"
+            label="Search Users"
+            placeholder="Search by username..."
+            @input="handleUserSearch"
+          />
+
+          <!-- Search Results -->
+          <div v-if="searchResults.length > 0" class="search-results">
+            <div
+              v-for="user in searchResults"
+              :key="user.id"
+              class="search-result-item"
+              :class="{ selected: selectedUser?.id === user.id }"
+              @click="selectUser(user)"
+            >
+              <span class="user-name">{{ user.username }}</span>
+              <span class="user-id">ID: {{ user.id }}</span>
+            </div>
+          </div>
+
+          <div
+            v-else-if="userSearchQuery && !searching"
+            class="no-results"
+          >
+            No users found
+          </div>
+
+          <!-- Selected User Display -->
+          <div v-if="selectedUser" class="selected-user">
+            <span>Selected: <strong>{{ selectedUser.username }}</strong></span>
+            <button type="button" @click="clearSelectedUser" class="clear-btn">
+              ✗
+            </button>
+          </div>
+        </div>
 
         <FormInput
           id="participantBudget"
@@ -179,7 +251,7 @@
         <button
           type="submit"
           class="modal-btn primary"
-          :disabled="adding"
+          :disabled="adding || !selectedUser"
           @click="handleAddParticipant"
         >
           {{ adding ? 'Adding...' : 'Add Participant' }}
@@ -240,6 +312,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTripsStore } from '@/stores/trips'
+import { passwordAuthAPI } from '@/services/api'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
@@ -266,12 +339,18 @@ export default {
     const participants = ref([])
     const loading = ref(true)
     const adding = ref(false)
+    const searching = ref(false)
 
     const showAddParticipantModal = ref(false)
     const showAddEventModal = ref(false)
 
+    // User search state
+    const userSearchQuery = ref('')
+    const searchResults = ref([])
+    const selectedUser = ref(null)
+    const userCache = ref({}) // Cache for user ID to username mapping
+
     const newParticipant = reactive({
-      userId: '',
       budget: 0
     })
 
@@ -292,15 +371,60 @@ export default {
       return trip.value?.owner === currentUserId.value
     })
 
+    // User search functionality
+    let searchTimeout = null
+    const handleUserSearch = async () => {
+      if (searchTimeout) clearTimeout(searchTimeout)
+
+      const query = userSearchQuery.value.trim()
+      if (!query) {
+        searchResults.value = []
+        return
+      }
+
+      searchTimeout = setTimeout(async () => {
+        searching.value = true
+        try {
+          const response = await passwordAuthAPI.searchUsers(query, 10)
+          searchResults.value = response.data.users || []
+
+          // Cache the usernames
+          response.data.users?.forEach(user => {
+            userCache.value[user.id] = user.username
+          })
+        } catch (error) {
+          console.error('Failed to search users:', error)
+          searchResults.value = []
+        } finally {
+          searching.value = false
+        }
+      }, 300)
+    }
+
+    const selectUser = user => {
+      selectedUser.value = user
+      searchResults.value = []
+      userSearchQuery.value = user.username
+      // Cache the username
+      userCache.value[user.id] = user.username
+    }
+
+    const clearSelectedUser = () => {
+      selectedUser.value = null
+      userSearchQuery.value = ''
+      searchResults.value = []
+    }
+
+    const getUserDisplayName = userId => {
+      return userCache.value[userId] || `User ${userId}`
+    }
+
     const loadTripData = async () => {
       loading.value = true
 
       try {
         // Fetch trip details
-        const tripResult = await tripsStore.fetchTripDetails(
-          tripId,
-          currentUserId.value
-        )
+        const tripResult = await tripsStore.fetchTripDetails(tripId)
         if (!tripResult.success) {
           console.error('Failed to fetch trip:', tripResult.error)
           loading.value = false
@@ -308,13 +432,27 @@ export default {
         }
 
         trip.value = tripsStore.currentTripDetails
-        console.log(trip)
 
         // Fetch participants
-        const participantsResult =
-          await tripsStore.getParticipantsInTrip(tripId)
+        const participantsResult = await tripsStore.getParticipantsInTrip(tripId)
         if (participantsResult.success) {
-          participants.value = participantsResult.participants || []
+          participants.value = (participantsResult.participants || []).map(p => ({
+            ...p,
+            editing: false,
+            newBudget: p.budget
+          }))
+
+          // Fetch usernames for all participants
+          for (const participant of participants.value) {
+            try {
+              const userResult = await passwordAuthAPI.searchUsers(participant.user, 1)
+              if (userResult.data.users && userResult.data.users.length > 0) {
+                userCache.value[participant.user] = userResult.data.users[0].username
+              }
+            } catch (error) {
+              console.error('Failed to fetch username:', error)
+            }
+          }
         }
 
         // Fetch itinerary
@@ -343,16 +481,43 @@ export default {
       router.push('/dashboard')
     }
 
+    // Budget management
+    const editBudget = participant => {
+      participant.editing = true
+      participant.newBudget = participant.budget
+    }
+
+    const saveBudget = async participant => {
+      const result = await tripsStore.updateParticipant(
+        currentUserId.value,
+        tripId,
+        participant.user,
+        participant.newBudget
+      )
+
+      if (result.success) {
+        participant.budget = participant.newBudget
+        participant.editing = false
+      } else {
+        alert('Failed to update budget: ' + result.error)
+      }
+    }
+
+    const cancelBudgetEdit = participant => {
+      participant.editing = false
+      participant.newBudget = participant.budget
+    }
+
     // Participant management
     const handleAddParticipant = async () => {
-      if (!newParticipant.userId.trim()) return
+      if (!selectedUser.value) return
 
       adding.value = true
 
       const result = await tripsStore.addParticipant(
         currentUserId.value,
         tripId,
-        newParticipant.userId,
+        selectedUser.value.id,
         newParticipant.budget
       )
 
@@ -361,10 +526,15 @@ export default {
       if (result.success) {
         closeAddParticipantModal()
         // Reload participants
-        const participantsResult =
-          await tripsStore.getParticipantsInTrip(tripId)
+        const participantsResult = await tripsStore.getParticipantsInTrip(
+          tripId
+        )
         if (participantsResult.success) {
-          participants.value = participantsResult.participants || []
+          participants.value = (participantsResult.participants || []).map(p => ({
+            ...p,
+            editing: false,
+            newBudget: p.budget
+          }))
         }
       } else {
         alert('Failed to add participant: ' + result.error)
@@ -387,10 +557,15 @@ export default {
 
       if (result.success) {
         // Reload participants
-        const participantsResult =
-          await tripsStore.getParticipantsInTrip(tripId)
+        const participantsResult = await tripsStore.getParticipantsInTrip(
+          tripId
+        )
         if (participantsResult.success) {
-          participants.value = participantsResult.participants || []
+          participants.value = (participantsResult.participants || []).map(p => ({
+            ...p,
+            editing: false,
+            newBudget: p.budget
+          }))
         }
       } else {
         alert('Failed to remove participant: ' + result.error)
@@ -399,7 +574,8 @@ export default {
 
     const closeAddParticipantModal = () => {
       showAddParticipantModal.value = false
-      Object.assign(newParticipant, { userId: '', budget: 0 })
+      clearSelectedUser()
+      Object.assign(newParticipant, { budget: 0 })
     }
 
     // Event management
@@ -480,13 +656,25 @@ export default {
       participants,
       loading,
       adding,
+      searching,
       isOwner,
+      currentUserId,
       showAddParticipantModal,
       showAddEventModal,
+      userSearchQuery,
+      searchResults,
+      selectedUser,
       newParticipant,
       newEvent,
       formatDate,
       goBack,
+      getUserDisplayName,
+      editBudget,
+      saveBudget,
+      cancelBudgetEdit,
+      handleUserSearch,
+      selectUser,
+      clearSelectedUser,
       handleAddParticipant,
       handleRemoveParticipant,
       closeAddParticipantModal,
@@ -621,6 +809,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  flex: 1;
 }
 
 .participant-name {
@@ -638,9 +827,55 @@ export default {
   width: fit-content;
 }
 
+.participant-budget-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .participant-budget {
   color: #7f8c8d;
   font-size: 0.9rem;
+}
+
+.budget-input {
+  width: 120px;
+  padding: 0.25rem 0.5rem;
+  border: 2px solid #3498db;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.participant-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.edit-budget-btn,
+.save-budget-btn,
+.cancel-budget-btn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: transform 0.2s ease;
+}
+
+.edit-budget-btn:hover,
+.save-budget-btn:hover {
+  transform: scale(1.2);
+}
+
+.save-budget-btn {
+  color: #27ae60;
+  font-size: 1.2rem;
+}
+
+.cancel-budget-btn {
+  color: #e74c3c;
+  font-size: 1.2rem;
 }
 
 .remove-btn {
@@ -772,6 +1007,88 @@ export default {
 
 .delete-btn:hover {
   background: #7f8c8d;
+}
+
+/* User Search */
+.search-container {
+  position: relative;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e1e8ed;
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.search-result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover {
+  background: #f8f9fa;
+}
+
+.search-result-item.selected {
+  background: #e3f2fd;
+}
+
+.user-name {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.user-id {
+  font-size: 0.85rem;
+  color: #7f8c8d;
+}
+
+.no-results {
+  padding: 1rem;
+  text-align: center;
+  color: #7f8c8d;
+  font-size: 0.9rem;
+}
+
+.selected-user {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #e3f2fd;
+  border-radius: 6px;
+}
+
+.clear-btn {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.clear-btn:hover {
+  background: #c0392b;
 }
 
 /* Modal */

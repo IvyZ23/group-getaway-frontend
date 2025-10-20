@@ -100,6 +100,28 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
+    async updateParticipant(owner, tripId, participantUser, budget) {
+      try {
+        await tripPlanningAPI.updateParticipant(owner, tripId, participantUser, budget)
+
+        // Update local state
+        const trip = this.trips.find(t => t.id === tripId)
+        if (trip && trip.participants) {
+          const participant = trip.participants.find(p => p.user === participantUser)
+          if (participant) {
+            participant.budget = budget
+          }
+        }
+
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to update participant'
+        }
+      }
+    },
+
     async removeParticipant(owner, tripId, participantUser) {
       try {
         await tripPlanningAPI.removeParticipant(owner, tripId, participantUser)

@@ -21,13 +21,16 @@
     </div>
 
     <p class="trip-description">
-      <span v-if="trip.destination" class="destination">📍 {{ trip.destination }}</span>
+      <span v-if="trip.destination" class="destination"
+        >📍 {{ trip.destination }}</span
+      >
       <span v-else>{{ trip.description || 'No description' }}</span>
     </p>
 
     <div class="trip-dates">
       <span class="date">
-        📅 {{ formatDate(trip.dateRange?.start || trip.startDate) }} - {{ formatDate(trip.dateRange?.end || trip.endDate) }}
+        📅 {{ formatDate(trip.dateRange?.start || trip.startDate) }} -
+        {{ formatDate(trip.dateRange?.end || trip.endDate) }}
       </span>
     </div>
 
@@ -58,7 +61,7 @@ export default {
   emits: ['click', 'edit', 'delete'],
   computed: {
     participantCount() {
-      return (this.trip.collaborators?.length || 0) + 1 // +1 for owner
+      return this.trip.participants?.length || 0
     }
   },
   methods: {
