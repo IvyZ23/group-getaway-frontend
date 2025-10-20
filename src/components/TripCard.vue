@@ -20,11 +20,14 @@
       </div>
     </div>
 
-    <p class="trip-description">{{ trip.description || 'No description' }}</p>
+    <p class="trip-description">
+      <span v-if="trip.destination" class="destination">📍 {{ trip.destination }}</span>
+      <span v-else>{{ trip.description || 'No description' }}</span>
+    </p>
 
     <div class="trip-dates">
       <span class="date">
-        📅 {{ formatDate(trip.startDate) }} - {{ formatDate(trip.endDate) }}
+        📅 {{ formatDate(trip.dateRange?.start || trip.startDate) }} - {{ formatDate(trip.dateRange?.end || trip.endDate) }}
       </span>
     </div>
 

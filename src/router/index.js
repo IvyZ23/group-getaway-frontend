@@ -4,6 +4,7 @@ import About from '../views/About.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
 import Dashboard from '../views/Dashboard.vue'
+import TripDetail from '../views/TripDetail.vue'
 
 const routes = [
   {
@@ -30,6 +31,12 @@ const routes = [
     path: '/dashboard',
     name: 'Dashboard',
     component: Dashboard,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/trip/:id',
+    name: 'TripDetail',
+    component: TripDetail,
     meta: { requiresAuth: true }
   }
 ]

@@ -22,6 +22,7 @@ export const useTripsStore = defineStore('trips', {
       try {
         const response = await tripPlanningAPI.getTripsByUser(userId)
         this.trips = response.data
+        console.log(this.trips)
         return { success: true }
       } catch (error) {
         this.error = error.response?.data?.error || 'Failed to fetch trips'
@@ -34,19 +35,24 @@ export const useTripsStore = defineStore('trips', {
     async createTrip(tripData) {
       this.loading = true
       this.error = null
-      console.log(tripData, '`tripData`')
 
       try {
-        console.log(tripData, '`tripData 12313`')
         const { name, destination, owner, dateRange } = tripData
         const response = await tripPlanningAPI.create(
-          dateRange,
-          destination,
           name,
-          owner
+          destination,
+          owner,
+          dateRange
         )
-        console.log(response, '`response`')
         const { tripId } = response.data
+
+        // Automatically create an itinerary for the trip
+        try {
+          await planItineraryAPI.create(tripId)
+        } catch (itineraryError) {
+          console.warn('Failed to create itinerary for trip:', itineraryError)
+          // Continue even if itinerary creation fails
+        }
 
         // Add to local state
         this.trips.push({
@@ -55,7 +61,7 @@ export const useTripsStore = defineStore('trips', {
           destination,
           owner,
           dateRange,
-          collaborators: [],
+          participants: [{ user: owner, budget: 0 }],
           createdAt: Date.now()
         })
 
@@ -69,14 +75,20 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
-    async addParticipant(tripId, userId) {
+    async addParticipant(owner, tripId, participantUser, budget = 0) {
       try {
-        await tripPlanningAPI.addParticipant(tripId, userId)
+        await tripPlanningAPI.addParticipant(
+          owner,
+          tripId,
+          participantUser,
+          budget
+        )
 
         // Update local state
         const trip = this.trips.find(t => t.id === tripId)
-        if (trip && !trip.collaborators.includes(userId)) {
-          trip.collaborators.push(userId)
+        if (trip && !trip.participants?.some(p => p.user === participantUser)) {
+          if (!trip.participants) trip.participants = []
+          trip.participants.push({ user: participantUser, budget })
         }
 
         return { success: true }
@@ -88,14 +100,16 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
-    async removeParticipant(tripId, userId) {
+    async removeParticipant(owner, tripId, participantUser) {
       try {
-        await tripPlanningAPI.removeParticipant(tripId, userId)
+        await tripPlanningAPI.removeParticipant(owner, tripId, participantUser)
 
         // Update local state
         const trip = this.trips.find(t => t.id === tripId)
-        if (trip) {
-          trip.collaborators = trip.collaborators.filter(id => id !== userId)
+        if (trip && trip.participants) {
+          trip.participants = trip.participants.filter(
+            p => p.user !== participantUser
+          )
         }
 
         return { success: true }
@@ -107,13 +121,19 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
-    async updateTrip(tripId, updates) {
+    async updateTrip(owner, tripId, updates) {
       this.loading = true
       this.error = null
 
       try {
         const { name, destination, dateRange } = updates
-        await tripPlanningAPI.update(tripId, name, destination, dateRange)
+        await tripPlanningAPI.update(
+          owner,
+          tripId,
+          destination,
+          dateRange,
+          name
+        )
 
         // Update local state
         const trip = this.trips.find(t => t.id === tripId)
@@ -132,9 +152,9 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
-    async deleteTrip(tripId) {
+    async deleteTrip(owner, tripId) {
       try {
-        await tripPlanningAPI.delete(tripId)
+        await tripPlanningAPI.delete(owner, tripId)
 
         // Remove from local state
         this.trips = this.trips.filter(t => t.id !== tripId)
@@ -151,13 +171,13 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
-    async fetchTripDetails(tripId) {
+    async fetchTripDetails(tripId, owner = undefined) {
       this.loading = true
       this.error = null
 
       try {
-        const response = await tripPlanningAPI.getTripById(tripId)
-        this.currentTrip = response.data[0]
+        const response = await tripPlanningAPI.getTripById(tripId, owner)
+        this.currentTrip = response.data
         return { success: true }
       } catch (error) {
         this.error =
@@ -174,6 +194,106 @@ export const useTripsStore = defineStore('trips', {
 
     clearError() {
       this.error = null
+    },
+
+    // Itinerary management methods
+    async fetchItinerary(tripId) {
+      this.loading = true
+      this.error = null
+
+      try {
+        const response = await planItineraryAPI.getItineraryByTrip(tripId)
+        console.log(response, 'itin')
+        const itinerary = response.data.itinerary
+
+        if (!itinerary) {
+          return { success: false, error: 'No itinerary found for this trip' }
+        }
+
+        // Fetch all events for this itinerary
+        const eventsResponse = await planItineraryAPI.getAllEventsForItinerary(
+          itinerary._id
+        )
+
+        return {
+          success: true,
+          itinerary: {
+            ...itinerary,
+            events: eventsResponse.data.events || []
+          }
+        }
+      } catch (error) {
+        this.error = error.response?.data?.error || 'Failed to fetch itinerary'
+        return { success: false, error: this.error }
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async addEvent(itineraryId, eventData) {
+      try {
+        const { name, cost } = eventData
+        const response = await planItineraryAPI.addEvent(
+          name,
+          cost,
+          itineraryId
+        )
+        return { success: true, event: response.data.event }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to add event'
+        }
+      }
+    },
+
+    async updateEvent(itineraryId, eventId, eventData) {
+      try {
+        const { name, cost } = eventData
+        await planItineraryAPI.updateEvent(eventId, name, cost, itineraryId)
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to update event'
+        }
+      }
+    },
+
+    async approveEvent(itineraryId, eventId, approved) {
+      try {
+        await planItineraryAPI.approveEvent(eventId, approved, itineraryId)
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to approve event'
+        }
+      }
+    },
+
+    async removeEvent(itineraryId, eventId) {
+      try {
+        await planItineraryAPI.removeEvent(eventId, itineraryId)
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to remove event'
+        }
+      }
+    },
+
+    async getParticipantsInTrip(tripId) {
+      try {
+        const response = await tripPlanningAPI.getParticipantsInTrip(tripId)
+        return { success: true, participants: response.data }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to fetch participants'
+        }
+      }
     }
   }
 })

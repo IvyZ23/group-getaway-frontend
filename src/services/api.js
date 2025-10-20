@@ -45,12 +45,6 @@ export const passwordAuthAPI = {
   authenticate: (username, password) =>
     api.post('/PasswordAuth/authenticate', { username, password }),
 
-  hashPassword: password =>
-    api.post('/PasswordAuth/hashPassword', { password }),
-
-  verifyPassword: (password, hash) =>
-    api.post('/PasswordAuth/verifyPassword', { password, hash }),
-
   getUserByUsername: username =>
     api.post('/PasswordAuth/_getUserByUsername', { username })
 }
@@ -58,7 +52,6 @@ export const passwordAuthAPI = {
 // TripPlanning API
 export const tripPlanningAPI = {
   create: (name, destination, owner, dateRange) => {
-    console.log(name, destination, owner, dateRange, '`create`')
     return api.post('/TripPlanning/create', {
       owner,
       destination,
@@ -67,241 +60,160 @@ export const tripPlanningAPI = {
     })
   },
 
-  update: (tripId, name, description, startDate, endDate) =>
+  update: (owner, tripId, destination, dateRange, name) =>
     api.post('/TripPlanning/update', {
+      owner,
       tripId,
-      name,
-      description,
-      startDate,
-      endDate
+      destination,
+      dateRange,
+      name
     }),
 
-  finalize: tripId => api.post('/TripPlanning/finalize', { tripId }),
+  finalize: (owner, tripId, finalized = true) =>
+    api.post('/TripPlanning/finalize', { owner, tripId, finalized }),
 
-  delete: tripId => api.post('/TripPlanning/delete', { tripId }),
+  delete: (owner, tripId) =>
+    api.post('/TripPlanning/delete', { owner, tripId }),
 
-  addParticipant: (tripId, userId) =>
-    api.post('/TripPlanning/addParticipant', { tripId, userId }),
+  addParticipant: (owner, tripId, participantUser, budget = 0) =>
+    api.post('/TripPlanning/addParticipant', {
+      owner,
+      tripId,
+      participantUser,
+      budget
+    }),
 
-  updateParticipant: (tripId, userId, role) =>
-    api.post('/TripPlanning/updateParticipant', { tripId, userId, role }),
+  updateParticipant: (owner, tripId, participantUser, budget) =>
+    api.post('/TripPlanning/updateParticipant', {
+      owner,
+      tripId,
+      participantUser,
+      budget
+    }),
 
-  removeParticipant: (tripId, userId) =>
-    api.post('/TripPlanning/removeParticipant', { tripId, userId }),
+  removeParticipant: (owner, tripId, participantUser) =>
+    api.post('/TripPlanning/removeParticipant', {
+      owner,
+      tripId,
+      participantUser
+    }),
 
-  removeSelf: tripId => api.post('/TripPlanning/removeSelf', { tripId }),
+  removeSelf: (user, tripId) =>
+    api.post('/TripPlanning/removeSelf', { user, tripId }),
 
-  getTripById: tripId => api.post('/TripPlanning/_getTripById', { tripId }),
+  getTripById: (tripId, owner = undefined) => {
+    const payload = { tripId }
+    if (owner !== undefined) payload.owner = owner
+    console.log(payload)
+    return api.post('/TripPlanning/_getTripById', payload)
+  },
 
-  getTripsByUser: userId =>
-    api.post('/TripPlanning/_getTripsByUser', { userId }),
+  getTripsByUser: owner => {
+    return api.post('/TripPlanning/_getTripsByUser', { owner })
+  },
 
   getParticipantsInTrip: tripId =>
     api.post('/TripPlanning/_getParticipantsInTrip', { tripId })
 }
 
-// PlanItinerary API
+// PlanItinerary API (matches ItineraryPlanner backend concept)
 export const planItineraryAPI = {
-  createTrip: (name, description, owner) =>
-    api.post('/PlanItinerary/createTrip', { name, description, owner }),
+  create: trip => api.post('/ItineraryPlanner/create', { trip }),
 
-  addCollaborator: (trip, user) =>
-    api.post('/PlanItinerary/addCollaborator', { trip, user }),
+  addEvent: (name, cost, itinerary) =>
+    api.post('/ItineraryPlanner/addEvent', { name, cost, itinerary }),
 
-  addLocation: (trip, locationName, arrivalDate, departureDate, order) =>
-    api.post('/PlanItinerary/addLocation', {
-      trip,
-      locationName,
-      arrivalDate,
-      departureDate,
-      order
-    }),
+  updateEvent: (event, name, cost, itinerary) =>
+    api.post('/ItineraryPlanner/updateEvent', { event, name, cost, itinerary }),
 
-  updateLocation: (
-    locationId,
-    locationName,
-    arrivalDate,
-    departureDate,
-    order
-  ) =>
-    api.post('/PlanItinerary/updateLocation', {
-      locationId,
-      locationName,
-      arrivalDate,
-      departureDate,
-      order
-    }),
+  approveEvent: (event, approved, itinerary) =>
+    api.post('/ItineraryPlanner/approveEvent', { event, approved, itinerary }),
 
-  deleteLocation: locationId =>
-    api.post('/PlanItinerary/deleteLocation', { locationId }),
+  removeEvent: (event, itinerary) =>
+    api.post('/ItineraryPlanner/removeEvent', { event, itinerary }),
 
-  addActivity: (trip, tripLocation, name, description, startTime, endTime) =>
-    api.post('/PlanItinerary/addActivity', {
-      trip,
-      tripLocation,
-      name,
-      description,
-      startTime,
-      endTime
-    }),
+  finalizeItinerary: (itinerary, finalized) =>
+    api.post('/ItineraryPlanner/finalizeItinerary', { itinerary, finalized }),
 
-  updateActivity: (activity, name, description, startTime, endTime) =>
-    api.post('/PlanItinerary/updateActivity', {
-      activity,
-      name,
-      description,
-      startTime,
-      endTime
-    }),
+  getItineraryByTrip: trip => {
+    return api.post('/ItineraryPlanner/_getItineraryByTrip', { trip })
+  },
 
-  deleteActivity: activity =>
-    api.post('/PlanItinerary/deleteActivity', { activity }),
+  getItineraryById: itinerary =>
+    api.post('/ItineraryPlanner/_getItineraryById', { itinerary }),
 
-  getTrips: (owner, collaborator) =>
-    api.post('/PlanItinerary/_getTrips', { owner, collaborator }),
+  getAllEventsForItinerary: itinerary =>
+    api.post('/ItineraryPlanner/_getAllEventsForItinerary', { itinerary }),
 
-  getLocationsForTrip: trip =>
-    api.post('/PlanItinerary/_getLocationsForTrip', { trip }),
+  getApprovedEventsForItinerary: itinerary =>
+    api.post('/ItineraryPlanner/_getApprovedEventsForItinerary', { itinerary }),
 
-  getActivitiesForLocation: tripLocation =>
-    api.post('/PlanItinerary/_getActivitiesForLocation', { tripLocation })
+  getEventById: event => api.post('/ItineraryPlanner/_getEventById', { event })
 }
 
 // CostSplitting API
 export const costSplittingAPI = {
-  create: (tripId, itemName, totalCost, participants) =>
-    api.post('/CostSplitting/create', {
-      tripId,
-      itemName,
-      totalCost,
-      participants
-    }),
+  create: (item, cost) => api.post('/CostSplitting/create', { item, cost }),
 
   remove: expenseId => api.post('/CostSplitting/remove', { expenseId }),
 
-  updateCost: (expenseId, totalCost) =>
-    api.post('/CostSplitting/updateCost', { expenseId, totalCost }),
+  updateCost: (expenseId, newCost) =>
+    api.post('/CostSplitting/updateCost', { expenseId, newCost }),
 
-  addContribution: (expenseId, userId, amount) =>
-    api.post('/CostSplitting/addContribution', { expenseId, userId, amount }),
+  addContribution: (userId, expenseId, amount) =>
+    api.post('/CostSplitting/addContribution', { userId, expenseId, amount }),
 
-  updateContribution: (expenseId, userId, amount) =>
+  updateContribution: (userId, newAmount, expenseId) =>
     api.post('/CostSplitting/updateContribution', {
-      expenseId,
       userId,
-      amount
+      newAmount,
+      expenseId
     }),
 
   getExpense: expenseId =>
     api.post('/CostSplitting/_getExpense', { expenseId }),
 
-  getExpensesByItem: (tripId, itemName) =>
-    api.post('/CostSplitting/_getExpensesByItem', { tripId, itemName }),
+  getExpensesByItem: item =>
+    api.post('/CostSplitting/_getExpensesByItem', { item }),
 
   getTotalContributions: expenseId =>
     api.post('/CostSplitting/_getTotalContributions', { expenseId }),
 
-  getUserContribution: (expenseId, userId) =>
-    api.post('/CostSplitting/_getUserContribution', { expenseId, userId })
-}
-
-// LikertSurvey API
-export const likertSurveyAPI = {
-  createSurvey: (tripId, title, description) =>
-    api.post('/LikertSurvey/createSurvey', { tripId, title, description }),
-
-  addQuestion: (surveyId, question, scale) =>
-    api.post('/LikertSurvey/addQuestion', { surveyId, question, scale }),
-
-  submitResponse: (surveyId, userId, responses) =>
-    api.post('/LikertSurvey/submitResponse', { surveyId, userId, responses }),
-
-  updateResponse: (surveyId, userId, responses) =>
-    api.post('/LikertSurvey/updateResponse', { surveyId, userId, responses }),
-
-  getSurveyQuestions: surveyId =>
-    api.post('/LikertSurvey/_getSurveyQuestions', { surveyId }),
-
-  getSurveyResponses: surveyId =>
-    api.post('/LikertSurvey/_getSurveyResponses', { surveyId }),
-
-  getRespondentAnswers: (surveyId, userId) =>
-    api.post('/LikertSurvey/_getRespondentAnswers', { surveyId, userId })
-}
-
-// ItineraryPlanner API
-export const itineraryPlannerAPI = {
-  checkItineraryNotFinalized: tripId =>
-    api.post('/ItineraryPlanner/checkItineraryNotFinalized', { tripId }),
-
-  create: (tripId, name, description) =>
-    api.post('/ItineraryPlanner/create', { tripId, name, description }),
-
-  addEvent: (itineraryId, eventData) =>
-    api.post('/ItineraryPlanner/addEvent', { itineraryId, ...eventData }),
-
-  updateEvent: (eventId, eventData) =>
-    api.post('/ItineraryPlanner/updateEvent', { eventId, ...eventData }),
-
-  approveEvent: eventId =>
-    api.post('/ItineraryPlanner/approveEvent', { eventId }),
-
-  removeEvent: eventId =>
-    api.post('/ItineraryPlanner/removeEvent', { eventId }),
-
-  finalizeItinerary: itineraryId =>
-    api.post('/ItineraryPlanner/finalizeItinerary', { itineraryId }),
-
-  getItineraryByTrip: tripId =>
-    api.post('/ItineraryPlanner/_getItineraryByTrip', { tripId }),
-
-  getItineraryById: itineraryId =>
-    api.post('/ItineraryPlanner/_getItineraryById', { itineraryId }),
-
-  getAllEventsForItinerary: itineraryId =>
-    api.post('/ItineraryPlanner/_getAllEventsForItinerary', { itineraryId }),
-
-  getApprovedEventsForItinerary: itineraryId =>
-    api.post('/ItineraryPlanner/_getApprovedEventsForItinerary', {
-      itineraryId
-    }),
-
-  getEventById: eventId =>
-    api.post('/ItineraryPlanner/_getEventById', { eventId })
+  getUserContribution: (userId, expenseId) =>
+    api.post('/CostSplitting/_getUserContribution', { userId, expenseId })
 }
 
 // Polling API
 export const pollingAPI = {
-  create: (question, options, creator) =>
-    api.post('/Polling/create', { question, options, creator }),
+  create: (user, name) => api.post('/Polling/create', { user, name }),
 
-  addOption: (pollId, option) =>
-    api.post('/Polling/addOption', { pollId, option }),
+  addOption: (actingUser, poll, option) =>
+    api.post('/Polling/addOption', { actingUser, poll, option }),
 
-  removeOption: (pollId, option) =>
-    api.post('/Polling/removeOption', { pollId, option }),
+  removeOption: (actingUser, poll, option) =>
+    api.post('/Polling/removeOption', { actingUser, poll, option }),
 
-  addUser: (pollId, userId) => api.post('/Polling/addUser', { pollId, userId }),
+  addUser: (actingUser, poll, userToAdd) =>
+    api.post('/Polling/addUser', { actingUser, poll, userToAdd }),
 
-  removeUser: (pollId, userId) =>
-    api.post('/Polling/removeUser', { pollId, userId }),
+  removeUser: (actingUser, poll, userToRemove) =>
+    api.post('/Polling/removeUser', { actingUser, poll, userToRemove }),
 
-  addVote: (pollId, userId, option) =>
-    api.post('/Polling/addVote', { pollId, userId, option }),
+  addVote: (user, option, poll) =>
+    api.post('/Polling/addVote', { user, option, poll }),
 
-  updateVote: (pollId, userId, option) =>
-    api.post('/Polling/updateVote', { pollId, userId, option }),
+  updateVote: (user, newOption, poll) =>
+    api.post('/Polling/updateVote', { user, newOption, poll }),
 
-  close: pollId => api.post('/Polling/close', { pollId }),
+  close: (actingUser, poll) => api.post('/Polling/close', { actingUser, poll }),
 
-  getResult: pollId => api.post('/Polling/getResult', { pollId }),
+  getResult: poll => api.post('/Polling/getResult', { poll }),
 
-  getPoll: pollId => api.post('/Polling/_getPoll', { pollId }),
+  getPoll: poll => api.post('/Polling/_getPoll', { poll }),
 
-  getVotesForPoll: pollId => api.post('/Polling/_getVotesForPoll', { pollId }),
+  getVotesForPoll: poll => api.post('/Polling/_getVotesForPoll', { poll }),
 
-  getUserVote: (pollId, userId) =>
-    api.post('/Polling/_getUserVote', { pollId, userId })
+  getUserVote: (poll, user) => api.post('/Polling/_getUserVote', { poll, user })
 }
 
 export default api

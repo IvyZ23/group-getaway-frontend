@@ -133,7 +133,9 @@ export default {
 
     const viewTrip = trip => {
       tripsStore.setCurrentTrip(trip)
-      router.push(`/trip/${trip.id}`)
+      // Use _id if available (from backend), otherwise use id (from local state)
+      const tripId = trip._id || trip.id
+      router.push(`/trip/${tripId}`)
     }
 
     const editTrip = trip => console.log('Edit trip:', trip)
@@ -144,7 +146,9 @@ export default {
           `Are you sure you want to delete "${trip.name}"? This action cannot be undone.`
         )
       ) {
-        const result = await tripsStore.deleteTrip(trip.id)
+        const userId = authStore.currentUser.id || authStore.currentUser.userId || authStore.currentUser
+        const tripId = trip._id || trip.id
+        const result = await tripsStore.deleteTrip(userId, tripId)
         if (!result.success) {
           alert('Failed to delete trip: ' + result.error)
         }
@@ -156,8 +160,14 @@ export default {
 
       creatingTrip.value = true
 
+      // Get the user ID from the current user object
+      const userId =
+        authStore.currentUser.id ||
+        authStore.currentUser.userId ||
+        authStore.currentUser
+
       const result = await tripsStore.createTrip({
-        owner: authStore.currentUser,
+        owner: userId,
         destination: newTrip.destination,
         dateRange: {
           start: newTrip.startDate,
@@ -167,8 +177,6 @@ export default {
       })
 
       creatingTrip.value = false
-
-      console.log(result, '`result`')
 
       if (result.success) {
         closeModal()
@@ -195,7 +203,10 @@ export default {
 
     onMounted(async () => {
       if (authStore.currentUser) {
-        await tripsStore.fetchUserTrips(authStore.currentUser)
+        // Pass the user ID to fetch trips
+        const userId = authStore.currentUser
+        console.log(userId)
+        await tripsStore.fetchUserTrips(userId)
       }
     })
 
