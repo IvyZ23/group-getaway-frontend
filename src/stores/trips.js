@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
-import { tripPlanningAPI, planItineraryAPI } from '@/services/api'
+import { tripPlanningAPI, planItineraryAPI, pollingAPI } from '@/services/api'
 
 export const useTripsStore = defineStore('trips', {
   state: () => ({
     trips: [],
     currentTrip: null,
     loading: false,
-    error: null
+    error: null,
+    // Map event IDs to poll IDs (backend queries by _id, not name)
+    eventPollMap: {} // { eventId: pollId }
   }),
 
   getters: {
@@ -102,12 +104,19 @@ export const useTripsStore = defineStore('trips', {
 
     async updateParticipant(owner, tripId, participantUser, budget) {
       try {
-        await tripPlanningAPI.updateParticipant(owner, tripId, participantUser, budget)
+        await tripPlanningAPI.updateParticipant(
+          owner,
+          tripId,
+          participantUser,
+          budget
+        )
 
         // Update local state
         const trip = this.trips.find(t => t.id === tripId)
         if (trip && trip.participants) {
-          const participant = trip.participants.find(p => p.user === participantUser)
+          const participant = trip.participants.find(
+            p => p.user === participantUser
+          )
           if (participant) {
             participant.budget = budget
           }
@@ -314,6 +323,267 @@ export const useTripsStore = defineStore('trips', {
         return {
           success: false,
           error: error.response?.data?.error || 'Failed to fetch participants'
+        }
+      }
+    },
+
+    // Event voting methods
+    async createEventPoll(eventId, tripParticipants, creatorId) {
+      try {
+        console.log('Creating poll for event:', eventId)
+
+        // Create poll with name = event-{eventId} (stores event association)
+        const pollName = `event-${eventId}`
+        const pollResponse = await pollingAPI.create(creatorId, pollName)
+
+        if (!pollResponse.data.poll) {
+          throw new Error('No poll ID returned')
+        }
+        console.log(pollResponse, 'created')
+
+        // Backend returns the poll _id (use this for all operations)
+        const pollId = pollResponse.data.poll
+        console.log('Poll created - ID:', pollId, 'Name:', pollName)
+
+        // Add Yes and No options dynamically
+        await pollingAPI.addOption(creatorId, pollId, 'Yes')
+        await pollingAPI.addOption(creatorId, pollId, 'No')
+
+        console.log('added')
+
+        // Fetch poll to get the generated option IDs (getPoll searches by name, not _id)
+        const pollDataResponse = await pollingAPI.getPoll(pollName)
+        console.log(pollDataResponse, 'polldatares')
+        const pollData = pollDataResponse.data.poll
+
+        if (!pollData) {
+          throw new Error(`Poll not found after creation. Poll name: ${pollName}`)
+        }
+
+        if (!pollData.options || pollData.options.length === 0) {
+          throw new Error(
+            `Poll has no options. Poll name: ${pollName}, Poll data: ${JSON.stringify(pollData)}`
+          )
+        }
+
+        const yesOption = pollData.options.find(opt => opt.label === 'Yes')
+        const noOption = pollData.options.find(opt => opt.label === 'No')
+
+        if (!yesOption || !noOption) {
+          throw new Error('Failed to find Yes/No options')
+        }
+
+        console.log(
+          'Options created - Yes ID:',
+          yesOption._id,
+          'No ID:',
+          noOption._id
+        )
+
+        // Add all trip participants to the poll
+        for (const participant of tripParticipants) {
+          if (participant.user !== creatorId) {
+            await pollingAPI.addUser(creatorId, pollId, participant.user)
+          }
+        }
+
+        // Store mapping from event ID to poll ID
+        this.eventPollMap[eventId] = pollId
+
+        return {
+          success: true,
+          pollId,
+          yesOptionId: yesOption._id,
+          noOptionId: noOption._id
+        }
+      } catch (error) {
+        console.error('Failed to create event poll:', error)
+        return {
+          success: false,
+          error:
+            error.response?.data?.error ||
+            error.message ||
+            'Failed to create poll'
+        }
+      }
+    },
+
+    async voteOnEvent(userId, pollId, optionId) {
+      try {
+        console.log(
+          'Voting - User:',
+          userId,
+          'Poll:',
+          pollId,
+          'Option:',
+          optionId
+        )
+
+        // Check if user has already voted
+        const existingVoteResponse = await pollingAPI.getUserVote(
+          pollId,
+          userId
+        )
+        const existingVote = existingVoteResponse.data.vote
+
+        if (existingVote) {
+          // User already voted - update their vote
+          console.log(
+            'Updating existing vote from',
+            existingVote.optionId,
+            'to',
+            optionId
+          )
+          await pollingAPI.updateVote(userId, optionId, pollId)
+        } else {
+          // User hasn't voted - add new vote
+          console.log('Adding new vote')
+          await pollingAPI.addVote(userId, optionId, pollId)
+        }
+
+        return { success: true }
+      } catch (error) {
+        console.error('Vote error:', error)
+        return {
+          success: false,
+          error:
+            error.response?.data?.error || error.message || 'Failed to vote'
+        }
+      }
+    },
+
+    async getEventVotes(eventId, userId = null) {
+      try {
+        // Get poll ID from event ID mapping
+        const pollId = this.eventPollMap[eventId]
+        if (!pollId) {
+          console.warn('No poll found for event:', eventId)
+          return {
+            success: false,
+            error: 'Poll not found for event',
+            yesVotes: 0,
+            noVotes: 0,
+            totalVotes: 0,
+            pollId: null,
+            userVote: null
+          }
+        }
+
+        console.log('Getting votes for event:', eventId, 'poll:', pollId)
+
+        // Get the poll data to access options and votes (getPoll searches by name, not _id)
+        const pollName = `event-${eventId}`
+        const pollResponse = await pollingAPI.getPoll(pollName)
+        const poll = pollResponse.data.poll
+
+        if (!poll) {
+          return {
+            success: false,
+            error: 'Poll not found',
+            yesVotes: 0,
+            noVotes: 0,
+            totalVotes: 0,
+            pollId: null,
+            userVote: null
+          }
+        }
+
+        const votes = poll.votes || []
+        const options = poll.options || []
+
+        // Find Yes and No option IDs (dynamically, not hardcoded)
+        const yesOption = options.find(opt => opt.label === 'Yes')
+        const noOption = options.find(opt => opt.label === 'No')
+
+        if (!yesOption || !noOption) {
+          console.error('Yes/No options not found in poll')
+          return {
+            success: false,
+            error: 'Poll options not configured',
+            yesVotes: 0,
+            noVotes: 0,
+            totalVotes: 0,
+            pollId,
+            userVote: null
+          }
+        }
+
+        // Count votes by option ID
+        const yesVotes = votes.filter(v => v.optionId === yesOption._id).length
+        const noVotes = votes.filter(v => v.optionId === noOption._id).length
+
+        console.log('Vote counts - Yes:', yesVotes, 'No:', noVotes)
+
+        // Check if the user has voted (for button highlighting)
+        let userVote = null
+        if (userId) {
+          const userVoteData = votes.find(v => v.userId === userId)
+          if (userVoteData) {
+            if (userVoteData.optionId === yesOption._id) {
+              userVote = 'yes'
+            } else if (userVoteData.optionId === noOption._id) {
+              userVote = 'no'
+            }
+            console.log('User', userId, 'voted:', userVote)
+          }
+        }
+
+        return {
+          success: true,
+          yesVotes,
+          noVotes,
+          totalVotes: votes.length,
+          votes,
+          pollId,
+          yesOptionId: yesOption._id,
+          noOptionId: noOption._id,
+          userVote // 'yes', 'no', or null - used for highlighting buttons
+        }
+      } catch (error) {
+        console.error('Failed to get votes:', error)
+        return {
+          success: false,
+          error:
+            error.response?.data?.error ||
+            error.message ||
+            'Failed to get votes',
+          yesVotes: 0,
+          noVotes: 0,
+          totalVotes: 0,
+          pollId: null,
+          userVote: null
+        }
+      }
+    },
+
+    async getUserVoteForEvent(userId, eventId) {
+      try {
+        const pollId = this.eventPollMap[eventId]
+        if (!pollId) {
+          return { success: false, vote: null }
+        }
+
+        const response = await pollingAPI.getUserVote(pollId, userId)
+        return {
+          success: true,
+          vote: response.data.vote?.optionId || null
+        }
+      } catch (error) {
+        return {
+          success: false,
+          vote: null
+        }
+      }
+    },
+
+    async closeEventPoll(creatorId, pollId) {
+      try {
+        await pollingAPI.close(creatorId, pollId)
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error.response?.data?.error || 'Failed to close poll'
         }
       }
     }

@@ -1,0 +1,3 @@
+## User Jounrey
+
+A user is excited to plan a trip to New York with their friends, but quickly becomes overwhelmed when the group chat floods with conflicting messages. The user signs up for our group trip planning app, GroupGetaway, chooses to create a new trip. They fill in the details and add their friends to the planner. The user and their friends can edit their budgets and vote on events. Once they have reached an agreement on an event, they can approve of it. After a week of back-and-forth planning, the group has a finalized itinerary that fits everyone’s budget. Confident and stress-free, the group starts preparing for their upcoming trip, knowing they can open GroupGetaway anytime to stay on track.

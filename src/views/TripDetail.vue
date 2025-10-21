@@ -65,7 +65,10 @@
               </div>
               <div class="participant-actions">
                 <button
-                  v-if="!participant.editing && (isOwner || participant.user === currentUserId)"
+                  v-if="
+                    !participant.editing &&
+                    (isOwner || participant.user === currentUserId)
+                  "
                   @click="editBudget(participant)"
                   class="edit-budget-btn"
                   title="Edit budget"
@@ -135,9 +138,7 @@
                   <span v-if="event.pending" class="status-badge pending"
                     >⏳ Pending</span
                   >
-                  <span
-                    v-else-if="event.approved"
-                    class="status-badge approved"
+                  <span v-else-if="event.approved" class="status-badge approved"
                     >✅ Approved</span
                   >
                   <span v-else class="status-badge rejected">❌ Rejected</span>
@@ -145,22 +146,68 @@
               </div>
               <p class="event-cost">💰 Cost: ${{ event.cost }}</p>
 
+              <!-- Voting Section (only for pending events) -->
+              <div v-if="event.pending && event.pollId" class="event-voting">
+                <div class="voting-header">
+                  <span class="voting-label">Vote:</span>
+                  <div class="vote-counts">
+                    <span class="vote-count yes"
+                      >👍 {{ event.yesVotes || 0 }}</span
+                    >
+                    <span class="vote-count no"
+                      >👎 {{ event.noVotes || 0 }}</span
+                    >
+                  </div>
+                </div>
+                <div class="voting-buttons">
+                  <button
+                    @click="handleVote(event, 'yes')"
+                    class="vote-btn yes"
+                    :class="{ selected: event.userVote === 'yes' }"
+                  >
+                    👍 Yes
+                  </button>
+                  <button
+                    @click="handleVote(event, 'no')"
+                    class="vote-btn no"
+                    :class="{ selected: event.userVote === 'no' }"
+                  >
+                    👎 No
+                  </button>
+                </div>
+              </div>
+
+              <!-- Vote Results (for approved/rejected events) -->
+              <div
+                v-else-if="!event.pending && event.pollId"
+                class="vote-results"
+              >
+                <span class="results-label">Final votes:</span>
+                <div class="vote-counts">
+                  <span class="vote-count yes"
+                    >👍 {{ event.yesVotes || 0 }}</span
+                  >
+                  <span class="vote-count no">👎 {{ event.noVotes || 0 }}</span>
+                </div>
+              </div>
+
               <div class="event-actions">
                 <button
-                  v-if="event.pending"
-                  @click="handleApproveEvent(event._id, true)"
+                  v-if="event.pending && isOwner"
+                  @click="handleApproveEvent(event._id, event.pollId, true)"
                   class="approve-btn"
                 >
                   Approve
                 </button>
                 <button
-                  v-if="event.pending"
-                  @click="handleApproveEvent(event._id, false)"
+                  v-if="event.pending && isOwner"
+                  @click="handleApproveEvent(event._id, event.pollId, false)"
                   class="reject-btn"
                 >
                   Reject
                 </button>
                 <button
+                  v-if="isOwner"
                   @click="handleRemoveEvent(event._id)"
                   class="delete-btn"
                 >
@@ -213,16 +260,15 @@
             </div>
           </div>
 
-          <div
-            v-else-if="userSearchQuery && !searching"
-            class="no-results"
-          >
+          <div v-else-if="userSearchQuery && !searching" class="no-results">
             No users found
           </div>
 
           <!-- Selected User Display -->
           <div v-if="selectedUser" class="selected-user">
-            <span>Selected: <strong>{{ selectedUser.username }}</strong></span>
+            <span
+              >Selected: <strong>{{ selectedUser.username }}</strong></span
+            >
             <button type="button" @click="clearSelectedUser" class="clear-btn">
               ✗
             </button>
@@ -434,20 +480,27 @@ export default {
         trip.value = tripsStore.currentTripDetails
 
         // Fetch participants
-        const participantsResult = await tripsStore.getParticipantsInTrip(tripId)
+        const participantsResult =
+          await tripsStore.getParticipantsInTrip(tripId)
         if (participantsResult.success) {
-          participants.value = (participantsResult.participants || []).map(p => ({
-            ...p,
-            editing: false,
-            newBudget: p.budget
-          }))
+          participants.value = (participantsResult.participants || []).map(
+            p => ({
+              ...p,
+              editing: false,
+              newBudget: p.budget
+            })
+          )
 
           // Fetch usernames for all participants
           for (const participant of participants.value) {
             try {
-              const userResult = await passwordAuthAPI.searchUsers(participant.user, 1)
+              const userResult = await passwordAuthAPI.searchUsers(
+                participant.user,
+                1
+              )
               if (userResult.data.users && userResult.data.users.length > 0) {
-                userCache.value[participant.user] = userResult.data.users[0].username
+                userCache.value[participant.user] =
+                  userResult.data.users[0].username
               }
             } catch (error) {
               console.error('Failed to fetch username:', error)
@@ -455,12 +508,8 @@ export default {
           }
         }
 
-        // Fetch itinerary
-        const itineraryResult = await tripsStore.fetchItinerary(tripId)
-        if (itineraryResult.success) {
-          itinerary.value = itineraryResult.itinerary
-          events.value = itineraryResult.itinerary.events || []
-        }
+        // Fetch itinerary with vote data
+        await loadEventsWithVotes()
       } catch (error) {
         console.error('Error loading trip data:', error)
       } finally {
@@ -526,15 +575,16 @@ export default {
       if (result.success) {
         closeAddParticipantModal()
         // Reload participants
-        const participantsResult = await tripsStore.getParticipantsInTrip(
-          tripId
-        )
+        const participantsResult =
+          await tripsStore.getParticipantsInTrip(tripId)
         if (participantsResult.success) {
-          participants.value = (participantsResult.participants || []).map(p => ({
-            ...p,
-            editing: false,
-            newBudget: p.budget
-          }))
+          participants.value = (participantsResult.participants || []).map(
+            p => ({
+              ...p,
+              editing: false,
+              newBudget: p.budget
+            })
+          )
         }
       } else {
         alert('Failed to add participant: ' + result.error)
@@ -557,15 +607,16 @@ export default {
 
       if (result.success) {
         // Reload participants
-        const participantsResult = await tripsStore.getParticipantsInTrip(
-          tripId
-        )
+        const participantsResult =
+          await tripsStore.getParticipantsInTrip(tripId)
         if (participantsResult.success) {
-          participants.value = (participantsResult.participants || []).map(p => ({
-            ...p,
-            editing: false,
-            newBudget: p.budget
-          }))
+          participants.value = (participantsResult.participants || []).map(
+            p => ({
+              ...p,
+              editing: false,
+              newBudget: p.budget
+            })
+          )
         }
       } else {
         alert('Failed to remove participant: ' + result.error)
@@ -592,19 +643,73 @@ export default {
       adding.value = false
 
       if (result.success) {
-        closeAddEventModal()
-        // Reload itinerary
-        const itineraryResult = await tripsStore.fetchItinerary(tripId)
-        if (itineraryResult.success) {
-          itinerary.value = itineraryResult.itinerary
-          events.value = itineraryResult.itinerary.events || []
+        console.log('Event created successfully, event ID:', result.event)
+        console.log('Current participants:', participants.value)
+        console.log('Current user ID:', currentUserId.value)
+
+        // Create poll for the event
+        const pollResult = await tripsStore.createEventPoll(
+          result.event,
+          participants.value,
+          currentUserId.value
+        )
+
+        console.log('Poll creation result:', pollResult)
+
+        if (!pollResult.success) {
+          console.error('Failed to create poll for event:', pollResult.error)
+          // alert('Event created but failed to create poll: ' + pollResult.error)
         }
+
+        closeAddEventModal()
+        // Reload itinerary and vote data
+        await loadEventsWithVotes()
       } else {
         alert('Failed to add event: ' + result.error)
       }
     }
 
-    const handleApproveEvent = async (eventId, approved) => {
+    const handleVote = async (event, voteLabel) => {
+      if (!event.pollId) return
+
+      // Get the option ID for the vote label (Yes or No)
+      const optionId =
+        voteLabel === 'yes' ? event.yesOptionId : event.noOptionId
+
+      if (!optionId) {
+        console.error('Option ID not found for vote:', voteLabel)
+        return
+      }
+
+      const result = await tripsStore.voteOnEvent(
+        currentUserId.value,
+        event.pollId,
+        optionId
+      )
+
+      if (result.success) {
+        // Update the event's vote data with the label
+        event.userVote = voteLabel
+
+        // Reload vote counts and verify the vote was recorded
+        const voteData = await tripsStore.getEventVotes(
+          event._id,
+          currentUserId.value
+        )
+        if (voteData.success) {
+          event.yesVotes = voteData.yesVotes
+          event.noVotes = voteData.noVotes
+          event.userVote = voteData.userVote // Update from backend to ensure consistency
+          // Update option IDs in case they weren't set
+          event.yesOptionId = voteData.yesOptionId
+          event.noOptionId = voteData.noOptionId
+        }
+      } else {
+        alert('Failed to vote: ' + result.error)
+      }
+    }
+
+    const handleApproveEvent = async (eventId, pollId, approved) => {
       const result = await tripsStore.approveEvent(
         itinerary.value._id,
         eventId,
@@ -612,14 +717,74 @@ export default {
       )
 
       if (result.success) {
-        // Reload itinerary
-        const itineraryResult = await tripsStore.fetchItinerary(tripId)
-        if (itineraryResult.success) {
-          itinerary.value = itineraryResult.itinerary
-          events.value = itineraryResult.itinerary.events || []
+        // Close the poll when event is approved/rejected
+        if (pollId) {
+          await tripsStore.closeEventPoll(currentUserId.value, pollId)
         }
+
+        // Reload itinerary and vote data
+        await loadEventsWithVotes()
       } else {
         alert('Failed to approve event: ' + result.error)
+      }
+    }
+
+    const loadEventsWithVotes = async () => {
+      // Reload itinerary
+      const itineraryResult = await tripsStore.fetchItinerary(tripId)
+      if (itineraryResult.success) {
+        itinerary.value = itineraryResult.itinerary
+        const loadedEvents = itineraryResult.itinerary.events || []
+
+        // For each event, try to load poll data
+        console.log('Loading vote data for', loadedEvents.length, 'events')
+        for (const event of loadedEvents) {
+          const eventId = event._id
+          console.log('Looking for poll for event ID:', eventId)
+
+          try {
+            // Pass the event ID and user ID to getEventVotes
+            // This will get vote counts AND check if the user has voted
+            const pollResponse = await tripsStore.getEventVotes(
+              eventId,
+              currentUserId.value
+            )
+            console.log('Poll response for', event.name, ':', pollResponse)
+
+            if (pollResponse.success && pollResponse.pollId) {
+              // Store the actual poll ID returned from the backend
+              event.pollId = pollResponse.pollId
+              event.yesVotes = pollResponse.yesVotes
+              event.noVotes = pollResponse.noVotes
+              event.yesOptionId = pollResponse.yesOptionId
+              event.noOptionId = pollResponse.noOptionId
+
+              // Store the user's vote (already checked in getEventVotes)
+              event.userVote = pollResponse.userVote // 'yes', 'no', or null
+
+              console.log('Poll data loaded for event:', event.name, {
+                pollId: event.pollId,
+                yesVotes: event.yesVotes,
+                noVotes: event.noVotes,
+                yesOptionId: event.yesOptionId,
+                noOptionId: event.noOptionId,
+                userVote: event.userVote
+              })
+            } else {
+              console.warn(
+                'Poll not found or failed for event:',
+                event.name,
+                pollResponse.error
+              )
+            }
+          } catch (error) {
+            console.error('Error loading poll for event:', event.name, error)
+          }
+        }
+
+        console.log('Final events with vote data:', loadedEvents)
+
+        events.value = loadedEvents
       }
     }
 
@@ -679,6 +844,7 @@ export default {
       handleRemoveParticipant,
       closeAddParticipantModal,
       handleAddEvent,
+      handleVote,
       handleApproveEvent,
       handleRemoveEvent,
       closeAddEventModal
@@ -963,6 +1129,120 @@ export default {
   color: #7f8c8d;
   margin: 0.5rem 0 1rem 0;
   font-size: 1rem;
+}
+
+/* Event Voting */
+.event-voting {
+  background: white;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 2px solid #e1e8ed;
+}
+
+.voting-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.voting-label {
+  font-weight: 600;
+  color: #2c3e50;
+  font-size: 0.9rem;
+}
+
+.vote-counts {
+  display: flex;
+  gap: 1rem;
+}
+
+.vote-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.vote-count.yes {
+  color: #27ae60;
+  background: #e8f8f5;
+}
+
+.vote-count.no {
+  color: #e74c3c;
+  background: #fadbd8;
+}
+
+.voting-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.vote-btn {
+  flex: 1;
+  border: 2px solid #e1e8ed;
+  background: white;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.vote-btn.yes {
+  color: #27ae60;
+}
+
+.vote-btn.yes:hover {
+  background: #e8f8f5;
+  border-color: #27ae60;
+}
+
+.vote-btn.yes.selected {
+  background: #27ae60;
+  color: white;
+  border-color: #27ae60;
+  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+}
+
+.vote-btn.no {
+  color: #e74c3c;
+}
+
+.vote-btn.no:hover {
+  background: #fadbd8;
+  border-color: #e74c3c;
+}
+
+.vote-btn.no.selected {
+  background: #e74c3c;
+  color: white;
+  border-color: #e74c3c;
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+.vote-results {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #e1e8ed;
+}
+
+.results-label {
+  font-weight: 600;
+  color: #7f8c8d;
+  font-size: 0.9rem;
 }
 
 .event-actions {

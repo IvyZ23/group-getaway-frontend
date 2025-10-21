@@ -188,13 +188,15 @@ export const costSplittingAPI = {
 
 // Polling API
 export const pollingAPI = {
-  create: (user, name) => api.post('/Polling/create', { user, name }),
+  create: (user, name) => {
+    return api.post('/Polling/create', { user, name })
+  },
 
-  addOption: (actingUser, poll, option) =>
-    api.post('/Polling/addOption', { actingUser, poll, option }),
+  addOption: (actingUser, poll, label) =>
+    api.post('/Polling/addOption', { actingUser, poll, label }),
 
-  removeOption: (actingUser, poll, option) =>
-    api.post('/Polling/removeOption', { actingUser, poll, option }),
+  removeOption: (actingUser, poll, optionId) =>
+    api.post('/Polling/removeOption', { actingUser, poll, optionId }),
 
   addUser: (actingUser, poll, userToAdd) =>
     api.post('/Polling/addUser', { actingUser, poll, userToAdd }),
@@ -202,8 +204,8 @@ export const pollingAPI = {
   removeUser: (actingUser, poll, userToRemove) =>
     api.post('/Polling/removeUser', { actingUser, poll, userToRemove }),
 
-  addVote: (user, option, poll) =>
-    api.post('/Polling/addVote', { user, option, poll }),
+  addVote: (user, optionId, poll) =>
+    api.post('/Polling/addVote', { user, optionId, poll }),
 
   updateVote: (user, newOption, poll) =>
     api.post('/Polling/updateVote', { user, newOption, poll }),
