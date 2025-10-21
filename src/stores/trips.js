@@ -187,9 +187,10 @@ export const useTripsStore = defineStore('trips', {
       try {
         await tripPlanningAPI.delete(owner, tripId)
 
-        // Remove from local state
-        this.trips = this.trips.filter(t => t.id !== tripId)
-        if (this.currentTrip?.id === tripId) {
+        // Remove from local state (check both _id and id to handle backend/frontend data)
+        this.trips = this.trips.filter(t => (t._id || t.id) !== tripId)
+        const currentTripId = this.currentTrip?._id || this.currentTrip?.id
+        if (currentTripId === tripId) {
           this.currentTrip = null
         }
 
