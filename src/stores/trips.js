@@ -12,7 +12,30 @@ export const useTripsStore = defineStore('trips', {
   }),
 
   getters: {
+    // All trips returned from the backend for this user (owner or participant)
     userTrips: state => state.trips,
+    // Trips where the current user is the owner/creator
+    ownedTrips: state => {
+      // `currentUserId` will be provided by the caller (component) when needed
+      return state.trips.filter(t => {
+        const ownerId = t.owner || t.ownerId || t._owner || t._id_owner
+        // If owner isn't present, fall back to `owner` field on top-level
+        return ownerId === undefined ? false : ownerId === t._queriedUser
+      })
+    },
+    // Trips where the current user is a participant but not the owner
+    invitedTrips: state => {
+      return state.trips.filter(t => {
+        const ownerId = t.owner || t.ownerId || t._owner || t._id_owner
+        const participants = t.participants || []
+        // participant entries may be { user: userId } or simple ids
+        const participantIds = participants.map(p => (p && p.user) || p)
+        // Caller should replace `t._queriedUser` with the actual user id if present
+        const userId = t._queriedUser
+        const isParticipant = participantIds.includes(userId)
+        return isParticipant && ownerId !== userId
+      })
+    },
     currentTripDetails: state => state.currentTrip
   },
 
@@ -358,7 +381,9 @@ export const useTripsStore = defineStore('trips', {
         const pollData = pollDataResponse.data.poll
 
         if (!pollData) {
-          throw new Error(`Poll not found after creation. Poll name: ${pollName}`)
+          throw new Error(
+            `Poll not found after creation. Poll name: ${pollName}`
+          )
         }
 
         if (!pollData.options || pollData.options.length === 0) {
@@ -456,18 +481,9 @@ export const useTripsStore = defineStore('trips', {
     async getEventVotes(eventId, userId = null) {
       try {
         // Get poll ID from event ID mapping
-        const pollId = this.eventPollMap[eventId]
+        let pollId = this.eventPollMap[eventId]
         if (!pollId) {
           console.warn('No poll found for event:', eventId)
-          return {
-            success: false,
-            error: 'Poll not found for event',
-            yesVotes: 0,
-            noVotes: 0,
-            totalVotes: 0,
-            pollId: null,
-            userVote: null
-          }
         }
 
         console.log('Getting votes for event:', eventId, 'poll:', pollId)
@@ -489,56 +505,69 @@ export const useTripsStore = defineStore('trips', {
           }
         }
 
-        const votes = poll.votes || []
-        const options = poll.options || []
-
-        // Find Yes and No option IDs (dynamically, not hardcoded)
-        const yesOption = options.find(opt => opt.label === 'Yes')
-        const noOption = options.find(opt => opt.label === 'No')
-
-        if (!yesOption || !noOption) {
-          console.error('Yes/No options not found in poll')
-          return {
-            success: false,
-            error: 'Poll options not configured',
-            yesVotes: 0,
-            noVotes: 0,
-            totalVotes: 0,
-            pollId,
-            userVote: null
+        // Ensure we return a valid pollId even after refresh
+        if (!pollId) {
+          pollId = poll._id || null
+          if (pollId) {
+            // Rehydrate the mapping for future calls in this session
+            this.eventPollMap[eventId] = pollId
           }
         }
 
-        // Count votes by option ID
-        const yesVotes = votes.filter(v => v.optionId === yesOption._id).length
-        const noVotes = votes.filter(v => v.optionId === noOption._id).length
+        const votes = poll.votes || []
+        const options = poll.options || []
 
-        console.log('Vote counts - Yes:', yesVotes, 'No:', noVotes)
+        // Build generic option counts
+        const optionCounts = options.map(opt => ({
+          _id: opt._id,
+          label: opt.label,
+          count: votes.filter(v => v.optionId === opt._id).length
+        }))
 
-        // Check if the user has voted (for button highlighting)
+        // Back-compat for existing Yes/No UI (if present)
+        const yesOption = options.find(opt => opt.label === 'Yes')
+        const noOption = options.find(opt => opt.label === 'No')
+        const yesVotes = yesOption
+          ? votes.filter(v => v.optionId === yesOption._id).length
+          : 0
+        const noVotes = noOption
+          ? votes.filter(v => v.optionId === noOption._id).length
+          : 0
+
+        // Determine current user's vote (for highlighting)
         let userVote = null
+        let userVoteOptionId = null
         if (userId) {
           const userVoteData = votes.find(v => v.userId === userId)
           if (userVoteData) {
-            if (userVoteData.optionId === yesOption._id) {
+            userVoteOptionId = userVoteData.optionId
+            if (yesOption && userVoteData.optionId === yesOption._id)
               userVote = 'yes'
-            } else if (userVoteData.optionId === noOption._id) {
+            else if (noOption && userVoteData.optionId === noOption._id)
               userVote = 'no'
-            }
-            console.log('User', userId, 'voted:', userVote)
           }
         }
 
         return {
           success: true,
+          // Generic poll payload for new UI
+          poll: {
+            _id: pollId,
+            name: poll.name,
+            closed: !!poll.closed,
+            options: optionCounts,
+            totalVotes: votes.length,
+            userVoteOptionId
+          },
+          // Legacy fields kept for compatibility
           yesVotes,
           noVotes,
           totalVotes: votes.length,
           votes,
           pollId,
-          yesOptionId: yesOption._id,
-          noOptionId: noOption._id,
-          userVote // 'yes', 'no', or null - used for highlighting buttons
+          yesOptionId: yesOption?._id || null,
+          noOptionId: noOption?._id || null,
+          userVote // 'yes', 'no', or null
         }
       } catch (error) {
         console.error('Failed to get votes:', error)

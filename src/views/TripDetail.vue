@@ -147,61 +147,48 @@
               <p class="event-cost">💰 Cost: ${{ event.cost }}</p>
 
               <!-- Voting Section (only for pending events) -->
-              <div v-if="event.pending && event.pollId" class="event-voting">
-                <div class="voting-header">
-                  <span class="voting-label">Vote:</span>
-                  <div class="vote-counts">
-                    <span class="vote-count yes"
-                      >👍 {{ event.yesVotes || 0 }}</span
-                    >
-                    <span class="vote-count no"
-                      >👎 {{ event.noVotes || 0 }}</span
-                    >
-                  </div>
-                </div>
-                <div class="voting-buttons">
-                  <button
-                    @click="handleVote(event, 'yes')"
-                    class="vote-btn yes"
-                    :class="{ selected: event.userVote === 'yes' }"
-                  >
-                    👍 Yes
-                  </button>
-                  <button
-                    @click="handleVote(event, 'no')"
-                    class="vote-btn no"
-                    :class="{ selected: event.userVote === 'no' }"
-                  >
-                    👎 No
-                  </button>
-                </div>
-              </div>
+              <PollWidget
+                v-if="event.pending && event.poll && event.poll._id"
+                :poll-id="event.poll._id"
+                :options="event.poll.options"
+                :user-vote-option-id="event.poll.userVoteOptionId"
+                :total-votes="event.poll.totalVotes"
+                :closed="false"
+                @vote="optionId => handleGenericVote(event, optionId)"
+              />
 
               <!-- Vote Results (for approved/rejected events) -->
               <div
-                v-else-if="!event.pending && event.pollId"
+                v-else-if="!event.pending && event.poll"
                 class="vote-results"
               >
                 <span class="results-label">Final votes:</span>
                 <div class="vote-counts">
-                  <span class="vote-count yes"
-                    >👍 {{ event.yesVotes || 0 }}</span
+                  <span
+                    v-for="opt in event.poll.options"
+                    :key="opt._id"
+                    class="vote-count"
+                    :class="{
+                      yes: opt.label.toLowerCase() === 'yes',
+                      no: opt.label.toLowerCase() === 'no'
+                    }"
                   >
-                  <span class="vote-count no">👎 {{ event.noVotes || 0 }}</span>
+                    {{ opt.label }}: {{ opt.count }}
+                  </span>
                 </div>
               </div>
 
               <div class="event-actions">
                 <button
                   v-if="event.pending && isOwner"
-                  @click="handleApproveEvent(event._id, event.pollId, true)"
+                  @click="handleApproveEvent(event._id, event.poll?._id, true)"
                   class="approve-btn"
                 >
                   Approve
                 </button>
                 <button
                   v-if="event.pending && isOwner"
-                  @click="handleApproveEvent(event._id, event.pollId, false)"
+                  @click="handleApproveEvent(event._id, event.poll?._id, false)"
                   class="reject-btn"
                 >
                   Reject
@@ -363,6 +350,7 @@ import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
 import FormInput from '@/components/FormInput.vue'
+import PollWidget from '@/components/PollWidget.vue'
 
 export default {
   name: 'TripDetail',
@@ -370,7 +358,8 @@ export default {
     LoadingSpinner,
     EmptyState,
     Modal,
-    FormInput
+    FormInput,
+    PollWidget
   },
   setup() {
     const route = useRoute()
@@ -669,40 +658,23 @@ export default {
       }
     }
 
-    const handleVote = async (event, voteLabel) => {
-      if (!event.pollId) return
-
-      // Get the option ID for the vote label (Yes or No)
-      const optionId =
-        voteLabel === 'yes' ? event.yesOptionId : event.noOptionId
-
-      if (!optionId) {
-        console.error('Option ID not found for vote:', voteLabel)
-        return
-      }
+    const handleGenericVote = async (event, optionId) => {
+      if (!event.poll || !event.poll._id) return
 
       const result = await tripsStore.voteOnEvent(
         currentUserId.value,
-        event.pollId,
+        event.poll._id,
         optionId
       )
 
       if (result.success) {
-        // Update the event's vote data with the label
-        event.userVote = voteLabel
-
-        // Reload vote counts and verify the vote was recorded
+        // Reload poll details for this event
         const voteData = await tripsStore.getEventVotes(
           event._id,
           currentUserId.value
         )
         if (voteData.success) {
-          event.yesVotes = voteData.yesVotes
-          event.noVotes = voteData.noVotes
-          event.userVote = voteData.userVote // Update from backend to ensure consistency
-          // Update option IDs in case they weren't set
-          event.yesOptionId = voteData.yesOptionId
-          event.noOptionId = voteData.noOptionId
+          event.poll = voteData.poll
         }
       } else {
         alert('Failed to vote: ' + result.error)
@@ -751,25 +723,39 @@ export default {
             )
             console.log('Poll response for', event.name, ':', pollResponse)
 
-            if (pollResponse.success && pollResponse.pollId) {
-              // Store the actual poll ID returned from the backend
-              event.pollId = pollResponse.pollId
-              event.yesVotes = pollResponse.yesVotes
-              event.noVotes = pollResponse.noVotes
-              event.yesOptionId = pollResponse.yesOptionId
-              event.noOptionId = pollResponse.noOptionId
+            if (
+              pollResponse.success &&
+              (pollResponse.pollId || pollResponse.poll)
+            ) {
+              // Normalize into a single poll object for the component
+              event.poll = pollResponse.poll || {
+                _id: pollResponse.pollId,
+                options: [
+                  ...(pollResponse.yesOptionId
+                    ? [
+                        {
+                          _id: pollResponse.yesOptionId,
+                          label: 'Yes',
+                          count: pollResponse.yesVotes
+                        }
+                      ]
+                    : []),
+                  ...(pollResponse.noOptionId
+                    ? [
+                        {
+                          _id: pollResponse.noOptionId,
+                          label: 'No',
+                          count: pollResponse.noVotes
+                        }
+                      ]
+                    : [])
+                ],
+                totalVotes: pollResponse.totalVotes || 0,
+                userVoteOptionId: null,
+                closed: false
+              }
 
-              // Store the user's vote (already checked in getEventVotes)
-              event.userVote = pollResponse.userVote // 'yes', 'no', or null
-
-              console.log('Poll data loaded for event:', event.name, {
-                pollId: event.pollId,
-                yesVotes: event.yesVotes,
-                noVotes: event.noVotes,
-                yesOptionId: event.yesOptionId,
-                noOptionId: event.noOptionId,
-                userVote: event.userVote
-              })
+              console.log('Poll data loaded for event:', event.name, event.poll)
             } else {
               console.warn(
                 'Poll not found or failed for event:',
@@ -844,7 +830,7 @@ export default {
       handleRemoveParticipant,
       closeAddParticipantModal,
       handleAddEvent,
-      handleVote,
+      handleGenericVote,
       handleApproveEvent,
       handleRemoveEvent,
       closeAddEventModal

@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard">
     <div class="dashboard-header">
-      <h1>My Trips</h1>
+      <h1>Trips</h1>
       <button @click="showCreateTripModal = true" class="create-trip-btn">
         <span class="plus-icon">+</span>
         Create New Trip
@@ -14,8 +14,14 @@
       :centered="true"
     />
 
+    <LoadingSpinner
+      v-if="loading"
+      message="Loading your trips..."
+      :centered="true"
+    />
+
     <EmptyState
-      v-else-if="trips.length === 0"
+      v-else-if="ownedTrips.length === 0 && invitedTrips.length === 0"
       icon="🗺️"
       title="No trips yet"
       description="Create your first trip to start planning your group getaway!"
@@ -23,15 +29,32 @@
       @action="showCreateTripModal = true"
     />
 
-    <div v-else class="trips-grid">
-      <TripCard
-        v-for="trip in trips"
-        :key="trip.id"
-        :trip="trip"
-        @click="viewTrip"
-        @edit="editTrip"
-        @delete="deleteTrip"
-      />
+    <div v-else>
+      <section v-if="ownedTrips.length > 0">
+        <h2>My Trips</h2>
+        <div class="trips-grid">
+          <TripCard
+            v-for="trip in ownedTrips"
+            :key="trip._id || trip.id"
+            :trip="trip"
+            @click="viewTrip"
+            @edit="editTrip"
+            @delete="deleteTrip"
+          />
+        </div>
+      </section>
+
+      <section v-if="invitedTrips.length > 0" style="margin-top:2rem">
+        <h2>Trips I'm invited to</h2>
+        <div class="trips-grid">
+          <TripCard
+            v-for="trip in invitedTrips"
+            :key="trip._id || trip.id"
+            :trip="trip"
+            @click="viewTrip"
+          />
+        </div>
+      </section>
     </div>
 
     <!-- Create Trip Modal -->
@@ -131,6 +154,35 @@ export default {
     const loading = computed(() => tripsStore.loading)
     const trips = computed(() => tripsStore.userTrips)
 
+    // Helper to extract a stable user id from authStore.currentUser
+    const currentUserId = computed(() => {
+      const u = authStore.currentUser
+      if (!u) return null
+      return u.id || u.userId || u._id || u
+    })
+
+    const ownedTrips = computed(() => {
+      const uid = currentUserId.value
+      if (!uid) return []
+      return trips.value.filter(t => {
+        const owner = t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
+        return owner === uid
+      })
+    })
+
+    const invitedTrips = computed(() => {
+      const uid = currentUserId.value
+      if (!uid) return []
+      return trips.value.filter(t => {
+        const owner = t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
+        // participants can be an array of ids or objects { user }
+        const participants = t.participants || []
+        const participantIds = participants.map(p => (p && p.user) || p)
+        const isParticipant = participantIds.includes(uid)
+        return isParticipant && owner !== uid
+      })
+    })
+
     const viewTrip = trip => {
       tripsStore.setCurrentTrip(trip)
       // Use _id if available (from backend), otherwise use id (from local state)
@@ -204,8 +256,8 @@ export default {
     onMounted(async () => {
       if (authStore.currentUser) {
         // Pass the user ID to fetch trips
-        const userId = authStore.currentUser
-        console.log(userId)
+        const userId = currentUserId.value
+        console.log('fetching trips for user:', userId)
         await tripsStore.fetchUserTrips(userId)
       }
     })
@@ -216,6 +268,8 @@ export default {
       newTrip,
       loading,
       trips,
+      ownedTrips,
+      invitedTrips,
       viewTrip,
       editTrip,
       deleteTrip,
