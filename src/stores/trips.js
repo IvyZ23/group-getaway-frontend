@@ -116,7 +116,62 @@ export const useTripsStore = defineStore('trips', {
           trip.participants.push({ user: participantUser, budget })
         }
 
-        return { success: true }
+        // Also attempt to add the participant to any existing polls for events in this trip.
+        const failedAdds = []
+        try {
+          const itinResp = await this.fetchItinerary(tripId)
+          if (
+            itinResp.success &&
+            itinResp.itinerary &&
+            itinResp.itinerary.events
+          ) {
+            const events = itinResp.itinerary.events
+            for (const evt of events) {
+              const eventId = evt._id || evt.id
+              if (!eventId) continue
+
+              // Resolve poll id: check in-memory map first, otherwise query backend by name
+              let pollId = this.eventPollMap[eventId]
+              if (!pollId) {
+                try {
+                  const pollResp = await pollingAPI.getPoll(`event-${eventId}`)
+                  const poll = pollResp.data.poll
+                  pollId = poll?._id || null
+                  if (pollId) this.eventPollMap[eventId] = pollId
+                } catch (err) {
+                  // ignore; we'll skip adding to this event's poll
+                }
+              }
+
+              if (pollId) {
+                try {
+                  const addResp = await pollingAPI.addUser(
+                    owner,
+                    pollId,
+                    participantUser
+                  )
+                  if (addResp?.data?.error) {
+                    failedAdds.push({
+                      eventId,
+                      participantUser,
+                      error: addResp.data.error
+                    })
+                  }
+                } catch (err) {
+                  failedAdds.push({
+                    eventId,
+                    participantUser,
+                    error: err.response?.data?.error || err.message
+                  })
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Error while adding participant to polls:', err)
+        }
+
+        return { success: true, failedAdds }
       } catch (error) {
         return {
           success: false,
@@ -406,10 +461,31 @@ export const useTripsStore = defineStore('trips', {
           noOption._id
         )
 
-        // Add all trip participants to the poll
+        // Add all trip participants to the poll (normalize participant shape)
+        const failedAdds = []
         for (const participant of tripParticipants) {
-          if (participant.user !== creatorId) {
-            await pollingAPI.addUser(creatorId, pollId, participant.user)
+          const participantId =
+            (participant && (participant.user || participant)) || null
+          if (!participantId) continue
+          if (participantId === creatorId) continue
+
+          try {
+            const addResp = await pollingAPI.addUser(
+              creatorId,
+              pollId,
+              participantId
+            )
+            // If backend returns an error payload, record it
+            if (addResp?.data?.error) {
+              failedAdds.push({ participantId, error: addResp.data.error })
+            }
+          } catch (err) {
+            // Record failure but continue adding others
+            failedAdds.push({
+              participantId,
+              error: err.response?.data?.error || err.message
+            })
+            console.warn('Failed to add user to poll:', participantId, err)
           }
         }
 
@@ -420,7 +496,8 @@ export const useTripsStore = defineStore('trips', {
           success: true,
           pollId,
           yesOptionId: yesOption._id,
-          noOptionId: noOption._id
+          noOptionId: noOption._id,
+          failedAdds
         }
       } catch (error) {
         console.error('Failed to create event poll:', error)

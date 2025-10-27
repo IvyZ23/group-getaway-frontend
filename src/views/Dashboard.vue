@@ -44,7 +44,7 @@
         </div>
       </section>
 
-      <section v-if="invitedTrips.length > 0" style="margin-top:2rem">
+      <section v-if="invitedTrips.length > 0" style="margin-top: 2rem">
         <h2>Trips I'm invited to</h2>
         <div class="trips-grid">
           <TripCard
@@ -165,7 +165,8 @@ export default {
       const uid = currentUserId.value
       if (!uid) return []
       return trips.value.filter(t => {
-        const owner = t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
+        const owner =
+          t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
         return owner === uid
       })
     })
@@ -174,7 +175,8 @@ export default {
       const uid = currentUserId.value
       if (!uid) return []
       return trips.value.filter(t => {
-        const owner = t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
+        const owner =
+          t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
         // participants can be an array of ids or objects { user }
         const participants = t.participants || []
         const participantIds = participants.map(p => (p && p.user) || p)
@@ -198,7 +200,10 @@ export default {
           `Are you sure you want to delete "${trip.name}"? This action cannot be undone.`
         )
       ) {
-        const userId = authStore.currentUser.id || authStore.currentUser.userId || authStore.currentUser
+        const userId =
+          authStore.currentUser.id ||
+          authStore.currentUser.userId ||
+          authStore.currentUser
         const tripId = trip._id || trip.id
         const result = await tripsStore.deleteTrip(userId, tripId)
         if (!result.success) {

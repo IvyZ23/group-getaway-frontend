@@ -9,7 +9,8 @@ export const useAuthStore = defineStore('auth', {
   }),
 
   getters: {
-    isLoggedIn: state => state.isAuthenticated && state.token !== null,
+    // For PasswordAuth the backend may not return a token; rely on isAuthenticated
+    isLoggedIn: state => state.isAuthenticated,
     currentUser: state => state.user
   },
 
@@ -17,15 +18,23 @@ export const useAuthStore = defineStore('auth', {
     async login(username, password) {
       try {
         const response = await passwordAuthAPI.authenticate(username, password)
-        const { token, user } = response.data
+        // The PasswordAuth concept returns either { user } on success or { error } on failure.
+        if (response.data?.error) {
+          return { success: false, error: response.data.error }
+        }
 
-        console.log(token, user)
+        const user = response.data?.user
+        const token = response.data?.token || null
 
+        if (!user) {
+          return { success: false, error: 'Invalid credentials' }
+        }
+
+        // Persist minimal auth state. Token is optional for this auth concept.
         this.token = token
         this.user = user
         this.isAuthenticated = true
 
-        // Store in localStorage
         localStorage.setItem('authToken', token)
         localStorage.setItem('user', JSON.stringify(user))
 
@@ -41,7 +50,14 @@ export const useAuthStore = defineStore('auth', {
     async register(username, password) {
       try {
         const response = await passwordAuthAPI.register(username, password)
-        const { user } = response.data
+        if (response.data?.error) {
+          return { success: false, error: response.data.error }
+        }
+
+        const user = response.data?.user
+        if (!user) {
+          return { success: false, error: 'Registration failed' }
+        }
 
         return { success: true, user }
       } catch (error) {
@@ -67,10 +83,8 @@ export const useAuthStore = defineStore('auth', {
       const token = localStorage.getItem('authToken')
       const user = localStorage.getItem('user')
 
-      if (token && user) {
-        // For PasswordAuth, we'll assume the token is valid if it exists
-        // In a real app, you might want to validate the token with the server
-        this.token = token
+      if (user) {
+        this.token = token || null
         this.user = JSON.parse(user)
         this.isAuthenticated = true
         return true
