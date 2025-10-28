@@ -120,12 +120,16 @@ export default {
 
 <style scoped>
 .login-container {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--nav-height));
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 1rem;
+  background: linear-gradient(
+    180deg,
+    rgba(168, 223, 241, 0.35) 0%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  padding: 2rem;
 }
 
 .login-card {

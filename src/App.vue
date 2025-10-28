@@ -2,26 +2,26 @@
   <div id="app">
     <nav class="navbar">
       <div class="nav-brand">
-        <router-link to="/" class="brand-link">
+        <router-link :to="isAuthenticated ? '/dashboard' : '/'" class="brand-link">
           <h1>Group Getaway</h1>
         </router-link>
       </div>
       <div class="nav-links">
-        <router-link to="/" class="nav-link">Home</router-link>
-        <router-link to="/about" class="nav-link">About</router-link>
-        
-        <template v-if="isAuthenticated">
-          <router-link to="/dashboard" class="nav-link">Dashboard</router-link>
-          <button @click="handleLogout" class="logout-btn">Logout</button>
-        </template>
-        
-        <template v-else>
+        <template v-if="!isAuthenticated">
+          <router-link to="/" class="nav-link">Home</router-link>
           <router-link to="/login" class="nav-link">Login</router-link>
-          <router-link to="/register" class="nav-link register">Sign Up</router-link>
+          <router-link to="/register" class="nav-link register"
+            >Sign Up</router-link
+          >
+        </template>
+
+        <template v-else>
+          <router-link to="/dashboard" class="nav-link">Dashboard</router-link>
+          <button @click="handleLogout" class="logout-btn auth">Logout</button>
         </template>
       </div>
     </nav>
-    
+
     <main class="main-content">
       <router-view />
     </main>
@@ -38,19 +38,19 @@ export default {
   setup() {
     const router = useRouter()
     const authStore = useAuthStore()
-    
+
     const isAuthenticated = computed(() => authStore.isLoggedIn)
-    
+
     const handleLogout = async () => {
       await authStore.logout()
       router.push('/')
     }
-    
+
     onMounted(async () => {
       // Check authentication status on app load
       await authStore.checkAuthStatus()
     })
-    
+
     return {
       isAuthenticated,
       handleLogout
@@ -65,9 +65,13 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 2rem;
-  background-color: #2c3e50;
+  background: linear-gradient(
+    90deg,
+    var(--color-deep),
+    rgba(43, 149, 214, 0.9)
+  );
   color: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .nav-brand h1 {
@@ -94,7 +98,20 @@ export default {
 }
 
 .nav-link.router-link-active {
-  background-color: #3498db;
+  background: none;
+  color: var(--color-deep);
+  position: relative;
+}
+
+.nav-link.router-link-active::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -8px;
+  height: 3px;
+  background: var(--color-deep);
+  border-radius: 3px;
 }
 
 .brand-link {
@@ -107,7 +124,7 @@ export default {
 }
 
 .logout-btn {
-  background: #e74c3c;
+  background: var(--color-warm);
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -122,11 +139,19 @@ export default {
 }
 
 .nav-link.register {
-  background: #27ae60;
+  background: var(--color-accent);
   color: white;
   padding: 0.5rem 1rem;
   border-radius: 4px;
   transition: background-color 0.3s ease;
+}
+
+/* when auth logout button should be red */
+.logout-btn.auth {
+  background: var(--logout-red);
+}
+.logout-btn.auth:hover {
+  background: #c0392b;
 }
 
 .nav-link.register:hover {
@@ -134,7 +159,6 @@ export default {
 }
 
 .main-content {
-  min-height: calc(100vh - 80px);
-  padding: 2rem;
+  min-height: calc(100vh - var(--nav-height));
 }
 </style>

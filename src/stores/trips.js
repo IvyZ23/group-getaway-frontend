@@ -230,6 +230,87 @@ export const useTripsStore = defineStore('trips', {
       }
     },
 
+    async removeSelf(user, tripId) {
+      try {
+        await tripPlanningAPI.removeSelf(user, tripId)
+
+        // Update local state: remove this user from participants
+        const trip = this.trips.find(t => (t._id || t.id) === tripId)
+        if (trip && trip.participants) {
+          trip.participants = trip.participants.filter(
+            p => (p.user || p) !== user
+          )
+        }
+
+        // If currentTrip is the trip we left, clear it
+        const currentTripId = this.currentTrip?._id || this.currentTrip?.id
+        if (currentTripId === tripId) this.currentTrip = null
+
+        // Also attempt to remove this user's votes from any polls associated with this trip's events.
+        const failedRemovals = []
+        try {
+          const itinResp = await this.fetchItinerary(tripId)
+          if (
+            itinResp.success &&
+            itinResp.itinerary &&
+            itinResp.itinerary.events
+          ) {
+            const events = itinResp.itinerary.events
+            for (const evt of events) {
+              const eventId = evt._id || evt.id
+              if (!eventId) continue
+
+              // Resolve poll id: check in-memory map first, otherwise query backend by name
+              let pollId = this.eventPollMap[eventId]
+              if (!pollId) {
+                try {
+                  const pollResp = await pollingAPI.getPoll(`event-${eventId}`)
+                  const poll = pollResp.data.poll
+                  pollId = poll?._id || null
+                  if (pollId) this.eventPollMap[eventId] = pollId
+                } catch (err) {
+                  // ignore and continue
+                }
+              }
+
+              if (pollId) {
+                try {
+                  const remResp = await pollingAPI.removeUser(
+                    user,
+                    pollId,
+                    user
+                  )
+                  if (remResp?.data?.error) {
+                    failedRemovals.push({
+                      eventId,
+                      user,
+                      error: remResp.data.error
+                    })
+                  }
+                } catch (err) {
+                  failedRemovals.push({
+                    eventId,
+                    user,
+                    error: err.response?.data?.error || err.message
+                  })
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Error while removing user votes from polls:', err)
+        }
+
+        return { success: true, failedRemovals }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error.response?.data?.error || 'Failed to remove self from trip'
+        }
+      }
+    },
+
     async updateTrip(owner, tripId, updates) {
       this.loading = true
       this.error = null

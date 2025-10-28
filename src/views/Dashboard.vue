@@ -1,5 +1,6 @@
 <template>
   <div class="dashboard">
+    <img class="dashboard-bg-airplane" :src="airplane" alt="" />
     <div class="dashboard-header">
       <h1>Trips</h1>
       <button @click="showCreateTripModal = true" class="create-trip-btn">
@@ -14,14 +15,8 @@
       :centered="true"
     />
 
-    <LoadingSpinner
-      v-if="loading"
-      message="Loading your trips..."
-      :centered="true"
-    />
-
     <EmptyState
-      v-else-if="ownedTrips.length === 0 && invitedTrips.length === 0"
+      v-else-if="(trips || []).length === 0"
       icon="🗺️"
       title="No trips yet"
       description="Create your first trip to start planning your group getaway!"
@@ -37,6 +32,7 @@
             v-for="trip in ownedTrips"
             :key="trip._id || trip.id"
             :trip="trip"
+            :is-owner="true"
             @click="viewTrip"
             @edit="editTrip"
             @delete="deleteTrip"
@@ -51,11 +47,15 @@
             v-for="trip in invitedTrips"
             :key="trip._id || trip.id"
             :trip="trip"
+            :is-owner="false"
             @click="viewTrip"
           />
         </div>
       </section>
     </div>
+
+    <!-- decorative background airplane removed to prevent overlap with trip cards -->
+    <!-- decorative background airplane for dashboard (fixed, low-opacity, behind content) -->
 
     <!-- Create Trip Modal -->
     <Modal
@@ -118,6 +118,7 @@
 
 <script>
 import { ref, reactive, onMounted, computed } from 'vue'
+import airplane from '@/assets/airplane.png'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTripsStore } from '@/stores/trips'
@@ -137,6 +138,7 @@ export default {
     FormInput
   },
   setup() {
+    // airplane asset is imported above
     const router = useRouter()
     const authStore = useAuthStore()
     const tripsStore = useTripsStore()
@@ -160,28 +162,35 @@ export default {
       if (!u) return null
       return u.id || u.userId || u._id || u
     })
+    function getOwnerId(trip) {
+      if (!trip) return null
+      if (typeof trip.owner === 'string' || typeof trip.owner === 'number')
+        return trip.owner
+      if (trip.owner && (trip.owner._id || trip.owner.id))
+        return trip.owner._id || trip.owner.id
+      if (trip.ownerId) return trip.ownerId
+      return null
+    }
+
+    function getParticipantIds(trip) {
+      const participants = trip.participants || []
+      return participants.map(p => (p && (p.user || p)) || null).filter(Boolean)
+    }
 
     const ownedTrips = computed(() => {
       const uid = currentUserId.value
       if (!uid) return []
-      return trips.value.filter(t => {
-        const owner =
-          t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
-        return owner === uid
-      })
+      return trips.value.filter(t => getOwnerId(t) === uid)
     })
 
     const invitedTrips = computed(() => {
       const uid = currentUserId.value
       if (!uid) return []
       return trips.value.filter(t => {
-        const owner =
-          t.owner || t.ownerId || (t.owner && (t.owner._id || t.owner.id))
-        // participants can be an array of ids or objects { user }
-        const participants = t.participants || []
-        const participantIds = participants.map(p => (p && p.user) || p)
+        const ownerId = getOwnerId(t)
+        const participantIds = getParticipantIds(t)
         const isParticipant = participantIds.includes(uid)
-        return isParticipant && owner !== uid
+        return isParticipant && ownerId !== uid
       })
     })
 
@@ -279,7 +288,9 @@ export default {
       editTrip,
       deleteTrip,
       handleCreateTrip,
-      closeModal
+      closeModal,
+      airplane,
+      currentUserId
     }
   }
 }
@@ -306,7 +317,7 @@ export default {
 }
 
 .create-trip-btn {
-  background: linear-gradient(135deg, #3498db, #2980b9);
+  background: linear-gradient(90deg, var(--color-accent), var(--color-deep));
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -336,6 +347,18 @@ export default {
   gap: 1.5rem;
 }
 
+.dashboard-hero {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-hero .hero-split {
+  padding: 1.25rem;
+}
+
+.dashboard-hero .attribution {
+  text-align: right;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -354,7 +377,7 @@ export default {
 }
 
 .modal-btn.primary {
-  background: linear-gradient(135deg, #3498db, #2980b9);
+  background: linear-gradient(90deg, var(--color-accent), var(--color-deep));
   color: white;
 }
 

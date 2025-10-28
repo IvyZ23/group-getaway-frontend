@@ -48,6 +48,8 @@ export const passwordAuthAPI = {
   getUserByUsername: username =>
     api.post('/PasswordAuth/_getUserByUsername', { username }),
 
+  getUserById: id => api.post('/PasswordAuth/_getUserById', { id }),
+
   searchUsers: (query, limit = 10) =>
     api.post('/PasswordAuth/searchUsers', { query, limit })
 }

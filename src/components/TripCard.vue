@@ -2,7 +2,7 @@
   <div class="trip-card" @click="$emit('click', trip)">
     <div class="trip-header">
       <h3 class="trip-name">{{ trip.name }}</h3>
-      <div class="trip-actions" @click.stop>
+      <div class="trip-actions" @click.stop v-if="isOwner">
         <button
           @click="$emit('edit', trip)"
           class="action-btn edit"
@@ -43,7 +43,8 @@
         </span>
       </div>
       <div class="trip-owner">
-        <span class="owner-badge">Owner</span>
+        <span v-if="isOwner" class="owner-badge">Owner</span>
+        <span v-else class="participant-badge">Participant</span>
       </div>
     </div>
   </div>
@@ -56,6 +57,12 @@ export default {
     trip: {
       type: Object,
       required: true
+    },
+    // Whether the current user is the owner of this trip. Controls
+    // visibility of edit/delete actions.
+    isOwner: {
+      type: Boolean,
+      default: false
     }
   },
   emits: ['click', 'edit', 'delete'],
@@ -164,6 +171,15 @@ export default {
 .owner-badge {
   background: #e8f5e8;
   color: #27ae60;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.participant-badge {
+  background: rgba(43, 149, 214, 0.08);
+  color: var(--color-deep);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   font-size: 0.8rem;

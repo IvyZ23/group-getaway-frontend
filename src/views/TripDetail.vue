@@ -42,7 +42,10 @@
             >
               <div class="participant-info">
                 <span class="participant-name">
-                  {{ getUserDisplayName(participant.user) }}
+                  {{
+                    participant.displayName ||
+                    getUserDisplayName(participant.user)
+                  }}
                 </span>
                 <span v-if="participant.user === trip.owner" class="owner-badge"
                   >Owner</span
@@ -97,6 +100,16 @@
                   class="remove-btn"
                 >
                   Remove
+                </button>
+                <button
+                  v-else-if="
+                    participant.user === currentUserId &&
+                    participant.user !== trip.owner
+                  "
+                  @click="handleLeaveTrip(participant.user)"
+                  class="remove-btn"
+                >
+                  Leave
                 </button>
               </div>
             </div>
@@ -451,7 +464,67 @@ export default {
     }
 
     const getUserDisplayName = userId => {
+      // If the participant user is an object with a username, use it
+      if (userId && typeof userId === 'object') {
+        return userId.username || `User ${userId.id || userId._id || ''}`
+      }
+
+      // Otherwise check the cache, or fall back to a friendly id label
       return userCache.value[userId] || `User ${userId}`
+    }
+
+    // Resolve participant usernames for an array of participants.
+    // Populates userCache and sets participant.displayName for immediate rendering.
+    const resolveParticipantNames = async participantArray => {
+      if (!participantArray || participantArray.length === 0) return
+
+      // Build a list of unique ids to fetch
+      const idsToFetch = new Set()
+      for (const p of participantArray) {
+        // participant.user may be an object ({ id/_id/username }) or a raw id
+        const maybe = p && (p.user || p)
+        let id = null
+        if (maybe && typeof maybe === 'object') {
+          id = maybe.id || maybe._id || maybe.user || null
+        } else {
+          id = maybe
+        }
+        if (id && !userCache.value[id]) idsToFetch.add(id)
+      }
+
+      // Fetch all missing usernames in parallel
+      const fetchPromises = Array.from(idsToFetch).map(async id => {
+        try {
+          const resp = await passwordAuthAPI.getUserById(id)
+          if (resp?.data && (resp.data.username || resp.data.id)) {
+            // Backend returns { id, username }
+            userCache.value[id] = resp.data.username || resp.data.id
+          }
+        } catch (err) {
+          // ignore per-user failures - leave fallback to id
+          console.warn('Failed to resolve username for', id, err)
+        }
+      })
+
+      await Promise.all(fetchPromises)
+
+      // Assign displayName on participant objects
+      for (const p of participantArray) {
+        const maybe = p && (p.user || p)
+        let id = null
+        if (maybe && typeof maybe === 'object') {
+          id = maybe.id || maybe._id || maybe.user || null
+          // If the object already has a username property, prefer it
+          if (maybe.username) {
+            p.displayName = maybe.username
+            continue
+          }
+        } else {
+          id = maybe
+        }
+
+        p.displayName = (id && userCache.value[id]) || null
+      }
     }
 
     const loadTripData = async () => {
@@ -476,25 +549,13 @@ export default {
             p => ({
               ...p,
               editing: false,
-              newBudget: p.budget
+              newBudget: p.budget,
+              displayName: null
             })
           )
 
-          // Fetch usernames for all participants
-          for (const participant of participants.value) {
-            try {
-              const userResult = await passwordAuthAPI.searchUsers(
-                participant.user,
-                1
-              )
-              if (userResult.data.users && userResult.data.users.length > 0) {
-                userCache.value[participant.user] =
-                  userResult.data.users[0].username
-              }
-            } catch (error) {
-              console.error('Failed to fetch username:', error)
-            }
-          }
+          // Resolve display names for participants (populate cache and participant.displayName)
+          await resolveParticipantNames(participants.value)
         }
 
         // Fetch itinerary with vote data
@@ -571,9 +632,12 @@ export default {
             p => ({
               ...p,
               editing: false,
-              newBudget: p.budget
+              newBudget: p.budget,
+              displayName: null
             })
           )
+
+          await resolveParticipantNames(participants.value)
         }
       } else {
         alert('Failed to add participant: ' + result.error)
@@ -603,12 +667,32 @@ export default {
             p => ({
               ...p,
               editing: false,
-              newBudget: p.budget
+              newBudget: p.budget,
+              displayName: null
             })
           )
+
+          await resolveParticipantNames(participants.value)
         }
       } else {
         alert('Failed to remove participant: ' + result.error)
+      }
+    }
+
+    const handleLeaveTrip = async participantUserId => {
+      if (!confirm('Are you sure you want to leave this trip?')) return
+
+      try {
+        const result = await tripsStore.removeSelf(participantUserId, tripId)
+        if (result.success) {
+          // Redirect user to dashboard after leaving
+          router.push('/dashboard')
+        } else {
+          alert('Failed to leave trip: ' + result.error)
+        }
+      } catch (err) {
+        console.error('Leave trip error:', err)
+        alert('Failed to leave trip')
       }
     }
 
@@ -829,6 +913,7 @@ export default {
       handleAddParticipant,
       handleRemoveParticipant,
       closeAddParticipantModal,
+      handleLeaveTrip,
       handleAddEvent,
       handleGenericVote,
       handleApproveEvent,

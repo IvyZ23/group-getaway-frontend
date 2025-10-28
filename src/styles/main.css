@@ -5,11 +5,33 @@
   box-sizing: border-box;
 }
 
+:root {
+  --color-deep: #003b6f; /* primary deep */
+  --color-light: #a8dff1; /* airy light */
+  --color-accent: #2b95d6; /* accent */
+  --color-warm: #bfae9f; /* neutral warm */
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --muted: #667085;
+  --logout-red: #e74c3c;
+  --radius: 12px;
+  --nav-height: 72px;
+}
+
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family:
+    'Figtree',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial;
   line-height: 1.6;
-  color: #333;
-  background-color: #f8f9fa;
+  color: var(--color-deep);
+  background: linear-gradient(180deg, var(--bg) 0%, #ffffff 100%);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
@@ -17,7 +39,12 @@ body {
 }
 
 /* Typography */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-weight: 600;
   line-height: 1.2;
 }
@@ -29,19 +56,42 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 1rem;
 }
 
+.site-header,
+.site-footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
 .text-center {
   text-align: center;
 }
 
-.mb-1 { margin-bottom: 0.5rem; }
-.mb-2 { margin-bottom: 1rem; }
-.mb-3 { margin-bottom: 1.5rem; }
-.mb-4 { margin-bottom: 2rem; }
+.mb-1 {
+  margin-bottom: 0.5rem;
+}
+.mb-2 {
+  margin-bottom: 1rem;
+}
+.mb-3 {
+  margin-bottom: 1.5rem;
+}
+.mb-4 {
+  margin-bottom: 2rem;
+}
 
-.mt-1 { margin-top: 0.5rem; }
-.mt-2 { margin-top: 1rem; }
-.mt-3 { margin-top: 1.5rem; }
-.mt-4 { margin-top: 2rem; }
+.mt-1 {
+  margin-top: 0.5rem;
+}
+.mt-2 {
+  margin-top: 1rem;
+}
+.mt-3 {
+  margin-top: 1.5rem;
+}
+.mt-4 {
+  margin-top: 2rem;
+}
 
 /* Button styles */
 .btn {
@@ -57,31 +107,50 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-primary {
-  background-color: #3498db;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-deep));
   color: white;
+  border-radius: calc(var(--radius) - 4px);
+  box-shadow: 0 6px 18px rgba(43, 149, 214, 0.12);
 }
 
 .btn-primary:hover {
-  background-color: #2980b9;
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 
 .btn-secondary {
-  background-color: #95a5a6;
-  color: white;
+  background: var(--color-warm);
+  color: var(--color-deep);
 }
 
 .btn-secondary:hover {
-  background-color: #7f8c8d;
+  transform: translateY(-2px);
 }
 
 /* Card styles */
 .card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.06);
   padding: 1.5rem;
   margin-bottom: 1rem;
+}
+
+/* Dashboard background airplane styling (kept behind content) */
+.dashboard {
+  position: relative;
+  z-index: 1; /* keep above the decorative airplane */
+}
+
+.dashboard-bg-airplane {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 320px;
+  max-width: 28vw;
+  opacity: 0.06;
+  pointer-events: none;
+  z-index: 0;
+  transform: translateZ(0);
 }
 
 /* Form styles */
@@ -107,8 +176,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .form-input:focus {
   outline: none;
-  border-color: #3498db;
-  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 6px rgba(42, 149, 214, 0.06);
 }
 
 /* Responsive design */
@@ -116,12 +185,125 @@ h1, h2, h3, h4, h5, h6 {
   .container {
     padding: 0 0.5rem;
   }
-  
+
   .hero h1 {
     font-size: 2rem;
   }
-  
+
   .features {
     grid-template-columns: 1fr;
   }
+}
+
+/* Hero utilities */
+.hero-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: center;
+  background: linear-gradient(
+    180deg,
+    rgba(168, 223, 241, 0.35) 0%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  padding: 4rem;
+  border-radius: 0; /* full-bleed hero should not have radius */
+  width: 100%;
+  height: calc(100vh - var(--nav-height)); /* take full viewport minus navbar */
+  box-sizing: border-box;
+}
+
+.hero-split .hero-content h1 {
+  font-size: 2.25rem;
+  color: var(--color-deep);
+  margin-bottom: 0.5rem;
+}
+
+.hero-split .hero-content p {
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+.hero-art {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hero-art img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* make hero content centered vertically and constrained for large screens */
+.hero-split .hero-content {
+  max-width: 720px;
+  margin: 0 2rem;
+  padding: 0 2rem; /* ensure content isn't flush to the sides */
+}
+
+/* For the landing page make the hero cover full screen and center the content */
+.home {
+  min-height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+}
+
+/* Remove default container padding applied elsewhere when used on the landing */
+.home .hero-split {
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .hero-split {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 2rem;
+  }
+  .hero-art {
+    order: -1;
+  }
+}
+
+.attribution {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .hero-split {
+    grid-template-columns: 1fr;
+  }
+  .hero-art {
+    order: -1;
+  }
+}
+
+/* background airplane for dashboard */
+.bg-airplane {
+  position: fixed;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  width: 320px;
+  max-width: 30vw;
+  opacity: 0.08;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
+/* Home full-bleed hero */
+.home {
+  min-height: calc(100vh - var(--nav-height));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  overflow: hidden; /* avoid page scroll on landing */
 }
