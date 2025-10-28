@@ -159,6 +159,71 @@
               </div>
               <p class="event-cost">💰 Cost: ${{ event.cost }}</p>
 
+              <!-- Cost splitting UI (only for approved/confirmed events) -->
+              <div v-if="event.approved" class="cost-splitting">
+                <div class="cost-summary">
+                  <div>
+                    Total contributed: ${{ event._totalContributed || 0 }}
+                  </div>
+                  <div>
+                    Remaining: ${{
+                      Math.max(
+                        (event._expenseCost || event.cost) -
+                          (event._totalContributed || 0),
+                        0
+                      )
+                    }}
+                  </div>
+                </div>
+
+                <div class="contribute-row">
+                  <label class="contrib-label">Your contribution:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    class="contrib-input"
+                    v-model.number="event._userContributionEdit"
+                    :disabled="
+                      event._expenseCovered && event._userContribution === 0
+                    "
+                  />
+                  <button
+                    class="contrib-save-btn"
+                    @click="saveContribution(event)"
+                    :disabled="
+                      event._expenseCovered && event._userContribution === 0
+                    "
+                  >
+                    {{ event._userContribution > 0 ? 'Update' : 'Contribute' }}
+                  </button>
+                </div>
+
+                <div class="contributors-list" v-if="event._contributors">
+                  <h4 style="margin: 0.6rem 0 0.4rem 0; font-size: 0.95rem">
+                    Contributors
+                  </h4>
+                  <div
+                    v-if="event._contributors.length === 0"
+                    class="no-contributors"
+                  >
+                    No contributors yet
+                  </div>
+                  <ul v-else class="contributors-items">
+                    <li
+                      v-for="c in event._contributors"
+                      :key="c.userId"
+                      class="contributor-item"
+                    >
+                      <span class="contributor-name">{{
+                        c.displayName || `User ${c.userId}`
+                      }}</span>
+                      <span class="contributor-amount">— ${{ c.amount }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
               <!-- Voting Section (only for pending events) -->
               <PollWidget
                 v-if="event.pending && event.poll && event.poll._id"
@@ -358,7 +423,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTripsStore } from '@/stores/trips'
-import { passwordAuthAPI } from '@/services/api'
+import { passwordAuthAPI, costSplittingAPI } from '@/services/api'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
@@ -447,6 +512,36 @@ export default {
           searching.value = false
         }
       }, 300)
+    }
+
+    // Resolve display names for an array of contributor objects { userId, amount }
+    const resolveContributorNames = async contributors => {
+      if (!contributors || contributors.length === 0) return
+
+      const idsToFetch = new Set()
+      for (const c of contributors) {
+        const id = c.userId || c.user || null
+        if (id && !userCache.value[id]) idsToFetch.add(id)
+      }
+
+      const fetchPromises = Array.from(idsToFetch).map(async id => {
+        try {
+          const resp = await passwordAuthAPI.getUserById(id)
+          if (resp?.data && (resp.data.username || resp.data.id)) {
+            userCache.value[id] = resp.data.username || resp.data.id
+          }
+        } catch (err) {
+          console.warn('Failed to resolve contributor username for', id, err)
+        }
+      })
+
+      await Promise.all(fetchPromises)
+
+      // Attach displayName to each contributor for rendering
+      for (const c of contributors) {
+        const id = c.userId || c.user || null
+        c.displayName = (id && userCache.value[id]) || `User ${id}`
+      }
     }
 
     const selectUser = user => {
@@ -785,6 +880,114 @@ export default {
       }
     }
 
+    // --- Cost splitting helpers ---
+    const loadExpenseForEvent = async event => {
+      // initialize fields
+      event._expenseId = null
+      event._expenseCost = event.cost || 0
+      event._totalContributed = 0
+      event._userContribution = 0
+      event._userContributionEdit = 0
+      event._expenseCovered = false
+
+      try {
+        // Try to find an expense by item = eventId
+        const resp = await costSplittingAPI.getExpensesByItem(event._id)
+        const expenses = resp.data || resp.data?.expenses || []
+        const expense =
+          Array.isArray(expenses) && expenses.length > 0 ? expenses[0] : null
+
+        if (expense) {
+          event._expenseId = expense._id || expense.expenseId || expense.id
+          event._expenseCost = expense.cost || event._expenseCost
+          event._expenseCovered = !!expense.covered
+
+          // expose contributors list and resolve contributor display names
+          event._contributors = Array.isArray(expense.contributors)
+            ? expense.contributors.map(c => ({ ...c }))
+            : []
+          await resolveContributorNames(event._contributors)
+
+          // total contributions
+          try {
+            const totalResp = await costSplittingAPI.getTotalContributions(
+              event._expenseId
+            )
+            event._totalContributed = totalResp.data?.total ?? 0
+          } catch (err) {
+            event._totalContributed = 0
+          }
+
+          // user contribution
+          try {
+            const userResp = await costSplittingAPI.getUserContribution(
+              currentUserId.value,
+              event._expenseId
+            )
+            event._userContribution = userResp.data?.amount ?? 0
+            event._userContributionEdit = event._userContribution
+          } catch (err) {
+            // user not a contributor yet
+            event._userContribution = 0
+            event._userContributionEdit = 0
+          }
+        }
+      } catch (err) {
+        console.warn('Error fetching expense for event', event._id, err)
+      }
+    }
+
+    const saveContribution = async event => {
+      if (!currentUserId.value) {
+        alert('You must be logged in to contribute')
+        return
+      }
+
+      const desired = Number(event._userContributionEdit || 0)
+
+      // If there's no expense yet and desired > 0, create one
+      if (!event._expenseId) {
+        if (desired <= 0) return // nothing to do
+        const createResp = await costSplittingAPI.create(event._id, event.cost)
+        if (createResp.data?.expenseId) {
+          event._expenseId = createResp.data.expenseId
+        } else if (createResp.data && createResp.data.error) {
+          alert('Failed to create expense: ' + createResp.data.error)
+          return
+        }
+      }
+
+      // If desired is zero and user not a contributor, nothing to do
+      if (desired === 0 && event._userContribution === 0) return
+
+      try {
+        if (event._userContribution > 0) {
+          // user already contributor -> update
+          const upd = await costSplittingAPI.updateContribution(
+            currentUserId.value,
+            desired,
+            event._expenseId
+          )
+          if (upd.data?.error) throw new Error(upd.data.error)
+        } else {
+          // user not contributor yet -> add if desired > 0
+          if (desired > 0) {
+            const add = await costSplittingAPI.addContribution(
+              currentUserId.value,
+              event._expenseId,
+              desired
+            )
+            if (add.data?.error) throw new Error(add.data.error)
+          }
+        }
+
+        // refresh expense data
+        await loadExpenseForEvent(event)
+      } catch (err) {
+        alert('Failed to save contribution: ' + (err.message || err))
+      }
+    }
+
     const loadEventsWithVotes = async () => {
       // Reload itinerary
       const itineraryResult = await tripsStore.fetchItinerary(tripId)
@@ -849,6 +1052,13 @@ export default {
             }
           } catch (error) {
             console.error('Error loading poll for event:', event.name, error)
+          }
+
+          // Load cost-splitting expense data for this event (if any)
+          try {
+            await loadExpenseForEvent(event)
+          } catch (err) {
+            console.warn('Failed to load expense for event', eventId, err)
           }
         }
 
@@ -918,7 +1128,9 @@ export default {
       handleGenericVote,
       handleApproveEvent,
       handleRemoveEvent,
-      closeAddEventModal
+      closeAddEventModal,
+      // cost splitting
+      saveContribution
     }
   }
 }
@@ -1200,6 +1412,79 @@ export default {
   color: #7f8c8d;
   margin: 0.5rem 0 1rem 0;
   font-size: 1rem;
+}
+
+/* Cost splitting styles */
+.cost-splitting {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e6eef6;
+}
+.cost-summary {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: #34495e;
+  font-weight: 600;
+}
+.contribute-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.contrib-label {
+  font-size: 0.95rem;
+  color: #2c3e50;
+  width: 125px;
+}
+.contrib-input {
+  width: 140px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #dfeaf5;
+  border-radius: 6px;
+}
+.contrib-save-btn {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-deep));
+  color: white;
+  border: none;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.contrib-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.contributors-list {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #eef6fb;
+}
+.contributors-items {
+  list-style: none;
+  padding: 0;
+  margin: 0.4rem 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.contributor-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #34495e;
+  font-weight: 600;
+}
+.contributor-amount {
+  color: #7f8c8d;
+  font-weight: 600;
+}
+.no-contributors {
+  color: #7f8c8d;
+  font-size: 0.95rem;
 }
 
 /* Event Voting */

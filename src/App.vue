@@ -2,7 +2,10 @@
   <div id="app">
     <nav class="navbar">
       <div class="nav-brand">
-        <router-link :to="isAuthenticated ? '/dashboard' : '/'" class="brand-link">
+        <router-link
+          :to="isAuthenticated ? '/dashboard' : '/'"
+          class="brand-link"
+        >
           <h1>Group Getaway</h1>
         </router-link>
       </div>

@@ -117,7 +117,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import airplane from '@/assets/airplane.png'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -160,21 +160,38 @@ export default {
     const currentUserId = computed(() => {
       const u = authStore.currentUser
       if (!u) return null
-      return u.id || u.userId || u._id || u
+      // Normalize to a stable string id for comparisons
+      const id = u.id || u.userId || u._id || u
+      return id == null ? null : String(id)
     })
     function getOwnerId(trip) {
       if (!trip) return null
+      // Normalize owner id to a string when possible
+      if (!trip.owner && trip.ownerId) return String(trip.ownerId)
       if (typeof trip.owner === 'string' || typeof trip.owner === 'number')
-        return trip.owner
+        return String(trip.owner)
       if (trip.owner && (trip.owner._id || trip.owner.id))
-        return trip.owner._id || trip.owner.id
-      if (trip.ownerId) return trip.ownerId
+        return String(trip.owner._id || trip.owner.id)
       return null
     }
 
     function getParticipantIds(trip) {
       const participants = trip.participants || []
-      return participants.map(p => (p && (p.user || p)) || null).filter(Boolean)
+      // Normalize participant entries to simple string ids
+      const ids = participants
+        .map(p => {
+          if (!p) return null
+          // p may be a raw id or an object { user: id | object, budget }
+          const maybe = p.user || p
+          if (!maybe) return null
+          if (typeof maybe === 'string' || typeof maybe === 'number')
+            return String(maybe)
+          // If it's an object, try common id fields
+          return String(maybe._id || maybe.id || maybe.user || null)
+        })
+        .filter(Boolean)
+
+      return ids
     }
 
     const ownedTrips = computed(() => {
@@ -275,6 +292,21 @@ export default {
         await tripsStore.fetchUserTrips(userId)
       }
     })
+
+    // If auth state changes (login/logout) re-fetch trips so invited trips appear
+    watch(
+      () => authStore.currentUser,
+      async newUser => {
+        if (newUser) {
+          const userId = currentUserId.value
+          console.log('auth changed, fetching trips for user:', userId)
+          await tripsStore.fetchUserTrips(userId)
+        } else {
+          // Clear trips on logout
+          tripsStore.trips = []
+        }
+      }
+    )
 
     return {
       showCreateTripModal,
