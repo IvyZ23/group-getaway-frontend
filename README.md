@@ -1,3 +1,5 @@
+# Assignment 4b: [User Journey (video)](./UserJourney.mov) • [User Journey (doc)](./UserJourney.md) • [Visual Design Study (PDF)](./visualdesignstudy.pdf)
+
 # Group Getaway Frontend
 
 A modern Vue.js application for planning group vacations and getaways.
@@ -29,17 +31,20 @@ A modern Vue.js application for planning group vacations and getaways.
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone <repository-url>
    cd group-getaway-frontend
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Start the development server:
+
    ```bash
    npm run dev
    ```
