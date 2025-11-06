@@ -5,6 +5,8 @@ const API_BASE_URL = 'http://localhost:8000/api'
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
+  // Ensure cookies (HttpOnly JWT set by backend) are sent with requests
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -12,16 +14,14 @@ const api = axios.create({
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('authToken')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-    return config
-  },
-  error => {
-    return Promise.reject(error)
-  }
+  // NOTE: authentication in this app is handled via an HttpOnly cookie set by
+  // the backend. We keep `withCredentials: true` above so the browser will
+  // send that cookie automatically. Avoid setting an Authorization header
+  // from localStorage to prevent sending stale tokens or duplicating auth
+  // mechanisms. If you need a token fallback for non-cookie flows, you can
+  // re-enable this logic, but prefer cookies for security (HttpOnly).
+  config => config,
+  error => Promise.reject(error)
 )
 
 // Response interceptor to handle auth errors
@@ -29,8 +29,9 @@ api.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('authToken')
-      localStorage.removeItem('user')
+      // On 401 we redirect to login. Don't rely on localStorage token here
+      // since authentication should be cookie-based. If you still store
+      // additional client state, clear it explicitly in your auth store.
       window.location.href = '/login'
     }
     return Promise.reject(error)
@@ -39,6 +40,19 @@ api.interceptors.response.use(
 
 // PasswordAuth API
 export const passwordAuthAPI = {
+  // Use the Requesting concept's auth endpoints which create server-side
+  // sessions and set HttpOnly cookies. These are preferred for session-based
+  // authentication flows.
+  login: (username, password) =>
+    api.post('/auth/login', { username, password }),
+
+  logout: () => api.post('/auth/logout'),
+
+  // Optional endpoint to check current session state. The backend may
+  // implement `/auth/me` to return the current user when a valid session
+  // cookie is present. If not implemented, callers should handle 404/500.
+  me: () => api.post('/auth/me'),
+
   register: (username, password) =>
     api.post('/PasswordAuth/register', { username, password }),
 

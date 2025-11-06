@@ -17,25 +17,24 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async login(username, password) {
       try {
-        const response = await passwordAuthAPI.authenticate(username, password)
-        // The PasswordAuth concept returns either { user } on success or { error } on failure.
+        // Use the Requesting `/auth/login` endpoint that creates a server-side
+        // session (HttpOnly cookie) and returns the verified user.
+        const response = await passwordAuthAPI.login(username, password)
+
         if (response.data?.error) {
           return { success: false, error: response.data.error }
         }
 
         const user = response.data?.user
-        const token = response.data?.token || null
 
         if (!user) {
           return { success: false, error: 'Invalid credentials' }
         }
 
-        // Persist minimal auth state. Token is optional for this auth concept.
-        this.token = token
+        // Persist minimal auth state for UI only. The real auth is the cookie.
+        this.token = null
         this.user = user
         this.isAuthenticated = true
-
-        localStorage.setItem('authToken', token)
         localStorage.setItem('user', JSON.stringify(user))
 
         return { success: true }
@@ -69,22 +68,36 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async logout() {
-      // PasswordAuth doesn't have a logout endpoint, so we just clear local state
+      try {
+        // Inform the server to destroy the session and clear cookie
+        await passwordAuthAPI.logout()
+      } catch (e) {
+        // ignore errors on logout
+      }
+
       this.token = null
       this.user = null
       this.isAuthenticated = false
-
-      // Clear localStorage
-      localStorage.removeItem('authToken')
       localStorage.removeItem('user')
     },
 
     async checkAuthStatus() {
-      const token = localStorage.getItem('authToken')
-      const user = localStorage.getItem('user')
+      // Prefer server-verified session check if available
+      try {
+        const resp = await passwordAuthAPI.me()
+        if (resp.data?.user) {
+          this.user = resp.data.user
+          this.isAuthenticated = true
+          localStorage.setItem('user', JSON.stringify(this.user))
+          return true
+        }
+      } catch (e) {
+        // If /auth/me isn't implemented or fails, fall back to localStorage
+      }
 
+      const user = localStorage.getItem('user')
       if (user) {
-        this.token = token || null
+        this.token = null
         this.user = JSON.parse(user)
         this.isAuthenticated = true
         return true

@@ -636,25 +636,82 @@ export default {
 
         trip.value = tripsStore.currentTripDetails
 
-        // Fetch participants
-        const participantsResult =
-          await tripsStore.getParticipantsInTrip(tripId)
-        if (participantsResult.success) {
-          participants.value = (participantsResult.participants || []).map(
-            p => ({
+        // If the backend returned an "enriched" trip (participants/itinerary/events included),
+        // use that instead of issuing separate requests. This reduces frontend->backend roundtrips
+        // and relies on the backend sync to fetch related data.
+        if (trip.value) {
+          // Use participants if provided by backend, else fetch separately
+          if (trip.value.participants && Array.isArray(trip.value.participants)) {
+            participants.value = trip.value.participants.map(p => ({
               ...p,
               editing: false,
               newBudget: p.budget,
               displayName: null
-            })
-          )
+            }))
+            await resolveParticipantNames(participants.value)
+          } else {
+            const participantsResult = await tripsStore.getParticipantsInTrip(tripId)
+            if (participantsResult.success) {
+              participants.value = (participantsResult.participants || []).map(p => ({
+                ...p,
+                editing: false,
+                newBudget: p.budget,
+                displayName: null
+              }))
+              await resolveParticipantNames(participants.value)
+            }
+          }
 
-          // Resolve display names for participants (populate cache and participant.displayName)
-          await resolveParticipantNames(participants.value)
+          // If itinerary + events were returned by backend, reuse them; otherwise load via existing helper
+          if (trip.value.itinerary) {
+            // Normalize itinerary shape (backend may return { itinerary } wrappers)
+            const maybeItinerary =
+              trip.value.itinerary && trip.value.itinerary.itinerary
+                ? trip.value.itinerary.itinerary
+                : trip.value.itinerary
+
+            itinerary.value = maybeItinerary
+
+            // Normalize events into an array regardless of shape the backend returns
+            const rawEvents =
+              trip.value.events || maybeItinerary?.events || []
+            let normalizedEvents = []
+            if (Array.isArray(rawEvents)) normalizedEvents = rawEvents
+            else if (rawEvents && typeof rawEvents === 'object') {
+              if (Array.isArray(rawEvents.events)) normalizedEvents = rawEvents.events
+              else if (rawEvents.event) normalizedEvents = [rawEvents.event]
+            }
+
+            events.value = normalizedEvents
+
+            // Fetch poll/vote and expense data for each event as before
+            for (const event of events.value || []) {
+              try {
+                const pollResponse = await tripsStore.getEventVotes(event._id, currentUserId.value)
+                if (pollResponse.success && (pollResponse.pollId || pollResponse.poll)) {
+                  event.poll = pollResponse.poll || {
+                    _id: pollResponse.pollId,
+                    options: [],
+                    totalVotes: pollResponse.totalVotes || 0,
+                    userVoteOptionId: null,
+                    closed: false
+                  }
+                }
+              } catch (err) {
+                // ignore per-event polling failures
+              }
+
+              try {
+                await loadExpenseForEvent(event)
+              } catch (err) {
+                console.warn('Failed to load expense for event', event._id, err)
+              }
+            }
+          } else {
+            // no itinerary present — use existing helper which will call backend
+            await loadEventsWithVotes()
+          }
         }
-
-        // Fetch itinerary with vote data
-        await loadEventsWithVotes()
       } catch (error) {
         console.error('Error loading trip data:', error)
       } finally {
@@ -993,11 +1050,18 @@ export default {
       const itineraryResult = await tripsStore.fetchItinerary(tripId)
       if (itineraryResult.success) {
         itinerary.value = itineraryResult.itinerary
-        const loadedEvents = itineraryResult.itinerary.events || []
+        // Normalize events robustly (backend may return wrapped or single-object)
+        let loadedEvents = []
+        const maybeEvents = itineraryResult.itinerary && itineraryResult.itinerary.events
+        if (Array.isArray(maybeEvents)) loadedEvents = maybeEvents
+        else if (maybeEvents && typeof maybeEvents === 'object') {
+          if (Array.isArray(maybeEvents.events)) loadedEvents = maybeEvents.events
+          else if (maybeEvents.event) loadedEvents = [maybeEvents.event]
+        }
 
         // For each event, try to load poll data
         console.log('Loading vote data for', loadedEvents.length, 'events')
-        for (const event of loadedEvents) {
+        for (const event of loadedEvents || []) {
           const eventId = event._id
           console.log('Looking for poll for event ID:', eventId)
 

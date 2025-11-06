@@ -249,7 +249,8 @@ export default {
         authStore.currentUser.userId ||
         authStore.currentUser
 
-      const result = await tripsStore.createTrip({
+      // Debug: log the exact payload we're about to send to the backend
+      const createPayload = {
         owner: userId,
         destination: newTrip.destination,
         dateRange: {
@@ -257,7 +258,10 @@ export default {
           end: newTrip.endDate
         },
         name: newTrip.name
-      })
+      }
+      console.log('Creating trip payload (frontend):', createPayload)
+
+      const result = await tripsStore.createTrip(createPayload)
 
       creatingTrip.value = false
 

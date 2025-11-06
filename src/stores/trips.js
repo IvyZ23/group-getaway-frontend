@@ -368,7 +368,8 @@ export const useTripsStore = defineStore('trips', {
 
       try {
         const response = await tripPlanningAPI.getTripById(tripId, owner)
-        this.currentTrip = response.data
+        // Backend may return either the trip object directly or a wrapper { trip: { ... } }
+        this.currentTrip = response.data && response.data.trip ? response.data.trip : response.data
         return { success: true }
       } catch (error) {
         this.error =
@@ -395,24 +396,34 @@ export const useTripsStore = defineStore('trips', {
       try {
         const response = await planItineraryAPI.getItineraryByTrip(tripId)
         console.log(response, 'itin')
-        const itinerary = response.data.itinerary
+      // Backend may return { itinerary } or { itinerary: { itinerary: <doc> } }
+      let itinerary = response.data && response.data.itinerary
+      if (itinerary && itinerary.itinerary) {
+        itinerary = itinerary.itinerary
+      }
 
-        if (!itinerary) {
-          return { success: false, error: 'No itinerary found for this trip' }
+      if (!itinerary) {
+        return { success: false, error: 'No itinerary found for this trip' }
+      }
+
+      // Fetch all events for this itinerary; backend responses may wrap events
+      const eventsResponse = await planItineraryAPI.getAllEventsForItinerary(
+        itinerary._id
+      )
+      let events = []
+      if (eventsResponse && eventsResponse.data) {
+        if (Array.isArray(eventsResponse.data)) events = eventsResponse.data
+        else if (eventsResponse.data.events) events = eventsResponse.data.events
+        else if (eventsResponse.data.event) events = [eventsResponse.data.event]
+      }
+
+      return {
+        success: true,
+        itinerary: {
+          ...itinerary,
+          events
         }
-
-        // Fetch all events for this itinerary
-        const eventsResponse = await planItineraryAPI.getAllEventsForItinerary(
-          itinerary._id
-        )
-
-        return {
-          success: true,
-          itinerary: {
-            ...itinerary,
-            events: eventsResponse.data.events || []
-          }
-        }
+      }
       } catch (error) {
         this.error = error.response?.data?.error || 'Failed to fetch itinerary'
         return { success: false, error: this.error }
@@ -478,7 +489,16 @@ export const useTripsStore = defineStore('trips', {
     async getParticipantsInTrip(tripId) {
       try {
         const response = await tripPlanningAPI.getParticipantsInTrip(tripId)
-        return { success: true, participants: response.data }
+      // Backend may return either an array (legacy) or an object { participants: [...] }
+      let participants = []
+      if (response && response.data) {
+        if (Array.isArray(response.data)) participants = response.data
+        else if (Array.isArray(response.data.participants)) participants = response.data.participants
+        else if (response.data.participants && Array.isArray(response.data.participants)) participants = response.data.participants
+        else participants = response.data
+      }
+
+      return { success: true, participants }
       } catch (error) {
         return {
           success: false,
