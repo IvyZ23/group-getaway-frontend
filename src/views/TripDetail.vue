@@ -622,6 +622,21 @@ export default {
       }
     }
 
+    // Ensure Vue reactivity when we add new properties to an event object by
+    // replacing the array element with a shallow-cloned object. This forces
+    // the template to pick up newly-added `_` properties (e.g. _contributors).
+    const ensureEventReactive = event => {
+      try {
+        const idx = events.value.findIndex(e => e._id === event._id)
+        if (idx !== -1) {
+          // splice in a shallow clone of the updated event to trigger reactivity
+          events.value.splice(idx, 1, { ...event })
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
     const loadTripData = async () => {
       loading.value = true
 
@@ -641,7 +656,10 @@ export default {
         // and relies on the backend sync to fetch related data.
         if (trip.value) {
           // Use participants if provided by backend, else fetch separately
-          if (trip.value.participants && Array.isArray(trip.value.participants)) {
+          if (
+            trip.value.participants &&
+            Array.isArray(trip.value.participants)
+          ) {
             participants.value = trip.value.participants.map(p => ({
               ...p,
               editing: false,
@@ -650,14 +668,17 @@ export default {
             }))
             await resolveParticipantNames(participants.value)
           } else {
-            const participantsResult = await tripsStore.getParticipantsInTrip(tripId)
+            const participantsResult =
+              await tripsStore.getParticipantsInTrip(tripId)
             if (participantsResult.success) {
-              participants.value = (participantsResult.participants || []).map(p => ({
-                ...p,
-                editing: false,
-                newBudget: p.budget,
-                displayName: null
-              }))
+              participants.value = (participantsResult.participants || []).map(
+                p => ({
+                  ...p,
+                  editing: false,
+                  newBudget: p.budget,
+                  displayName: null
+                })
+              )
               await resolveParticipantNames(participants.value)
             }
           }
@@ -673,12 +694,12 @@ export default {
             itinerary.value = maybeItinerary
 
             // Normalize events into an array regardless of shape the backend returns
-            const rawEvents =
-              trip.value.events || maybeItinerary?.events || []
+            const rawEvents = trip.value.events || maybeItinerary?.events || []
             let normalizedEvents = []
             if (Array.isArray(rawEvents)) normalizedEvents = rawEvents
             else if (rawEvents && typeof rawEvents === 'object') {
-              if (Array.isArray(rawEvents.events)) normalizedEvents = rawEvents.events
+              if (Array.isArray(rawEvents.events))
+                normalizedEvents = rawEvents.events
               else if (rawEvents.event) normalizedEvents = [rawEvents.event]
             }
 
@@ -687,8 +708,14 @@ export default {
             // Fetch poll/vote and expense data for each event as before
             for (const event of events.value || []) {
               try {
-                const pollResponse = await tripsStore.getEventVotes(event._id, currentUserId.value)
-                if (pollResponse.success && (pollResponse.pollId || pollResponse.poll)) {
+                const pollResponse = await tripsStore.getEventVotes(
+                  event._id,
+                  currentUserId.value
+                )
+                if (
+                  pollResponse.success &&
+                  (pollResponse.pollId || pollResponse.poll)
+                ) {
                   event.poll = pollResponse.poll || {
                     _id: pollResponse.pollId,
                     options: [],
@@ -947,12 +974,54 @@ export default {
       event._userContributionEdit = 0
       event._expenseCovered = false
 
+      // Debug: initial event state when loading expense
+      try {
+        console.log('[loadExpenseForEvent] start', {
+          eventId: event._id,
+          initialCost: event._expenseCost
+        })
+      } catch (e) {
+        /* ignore logging errors */
+      }
+
       try {
         // Try to find an expense by item = eventId
         const resp = await costSplittingAPI.getExpensesByItem(event._id)
-        const expenses = resp.data || resp.data?.expenses || []
-        const expense =
-          Array.isArray(expenses) && expenses.length > 0 ? expenses[0] : null
+        // Debug: log raw response from API
+        try {
+          console.log('[loadExpenseForEvent] getExpensesByItem response', {
+            eventId: event._id,
+            resp: resp && resp.data ? resp.data : resp
+          })
+        } catch (e) {
+          /* ignore logging errors */
+        }
+
+        // Normalize a few possible response shapes from the sync layer / backend:
+        // - { data: { expenses: [...] } }
+        // - { data: [...] }
+        // - { expenses: [...] }
+        // - [...]
+        const respData = resp && (resp.data ?? resp)
+        let expenses = []
+        if (Array.isArray(respData)) {
+          expenses = respData
+        } else if (respData && Array.isArray(respData.expenses)) {
+          expenses = respData.expenses
+        } else if (resp && Array.isArray(resp.expenses)) {
+          expenses = resp.expenses
+        } else {
+          expenses = []
+        }
+
+        const expense = expenses.length > 0 ? expenses[0] : null
+        try {
+          console.log('[loadExpenseForEvent] normalized expenses', {
+            eventId: event._id,
+            expensesCount: expenses.length,
+            expense
+          })
+        } catch (e) {/* ignore */}
 
         if (expense) {
           event._expenseId = expense._id || expense.expenseId || expense.id
@@ -960,6 +1029,8 @@ export default {
           event._expenseCovered = !!expense.covered
 
           // expose contributors list and resolve contributor display names
+          // ensure we always expose an array so the template can render
+          // the "No contributors yet" message when empty
           event._contributors = Array.isArray(expense.contributors)
             ? expense.contributors.map(c => ({ ...c }))
             : []
@@ -970,10 +1041,49 @@ export default {
             const totalResp = await costSplittingAPI.getTotalContributions(
               event._expenseId
             )
-            event._totalContributed = totalResp.data?.total ?? 0
+            // The backend sync layer may nest the result (e.g. { total: { total: 1 } })
+            // or return a flat { total: 1 }. Normalize to a number here.
+            const rawTotal = totalResp?.data?.total
+            if (
+              rawTotal &&
+              typeof rawTotal === 'object' &&
+              'total' in rawTotal
+            ) {
+              event._totalContributed = Number(rawTotal.total) || 0
+            } else if (typeof rawTotal === 'number') {
+              event._totalContributed = rawTotal
+            } else {
+              event._totalContributed = 0
+            }
           } catch (err) {
             event._totalContributed = 0
           }
+
+          // Debug: log computed expense state for this event
+          try {
+            console.log('[loadExpenseForEvent] expense resolved', {
+              eventId: event._id,
+              expenseId: event._expenseId,
+              expenseCost: event._expenseCost,
+              totalContributed: event._totalContributed,
+              covered: event._expenseCovered,
+              contributors: event._contributors
+            })
+          } catch (e) {
+            /* ignore logging errors */
+          }
+
+          // Ensure the template sees the newly-added properties
+          ensureEventReactive(event)
+
+          // Helpful debug: log the fully-enriched event so you can inspect
+          // it in the browser console (user asked to see event in events).
+          try {
+            console.log('[loadExpenseForEvent] enriched event', {
+              eventId: event._id,
+              event
+            })
+          } catch (e) {/* ignore */}
 
           // user contribution
           try {
@@ -1001,16 +1111,73 @@ export default {
       }
 
       const desired = Number(event._userContributionEdit || 0)
+      try {
+        console.log('[saveContribution] start', {
+          eventId: event._id,
+          desired,
+          expenseId: event._expenseId,
+          userContribution: event._userContribution,
+          totalContributed: event._totalContributed,
+          expenseCost: event._expenseCost || event.cost
+        })
+      } catch (e) {
+        /* ignore logging errors */
+      }
 
       // If there's no expense yet and desired > 0, create one
       if (!event._expenseId) {
         if (desired <= 0) return // nothing to do
-        const createResp = await costSplittingAPI.create(event._id, event.cost)
+        // If the event's declared cost is zero or missing, use the user's desired
+        // contribution as the initial expense cost so we don't send a 0 to the server.
+        const initialCost = Math.max(event.cost || 0, desired)
+        try {
+          console.log('[saveContribution] creating expense', {
+            eventId: event._id,
+            initialCost
+          })
+        } catch (e) {
+          /* ignore logging errors */
+        }
+        const createResp = await costSplittingAPI.create(event._id, initialCost)
+        try {
+          console.log('[saveContribution] create expense response', {
+            eventId: event._id,
+            createResp:
+              createResp && createResp.data ? createResp.data : createResp
+          })
+        } catch (e) {
+          /* ignore logging errors */
+        }
         if (createResp.data?.expenseId) {
           event._expenseId = createResp.data.expenseId
         } else if (createResp.data && createResp.data.error) {
-          alert('Failed to create expense: ' + createResp.data.error)
-          return
+          // If the create failed because the item already exists, reload the
+          // expense for this event (it may have been created earlier) and
+          // continue. Otherwise surface the error to the user.
+          const err = createResp.data.error || ''
+          if (err.toLowerCase().includes('already exists')) {
+            try {
+              console.log(
+                '[saveContribution] create returned already exists; reloading expense for event',
+                event._id
+              )
+              await loadExpenseForEvent(event)
+            } catch (reloadErr) {
+              console.warn(
+                'Failed to reload expense after create conflict',
+                reloadErr
+              )
+            }
+
+            // If reload populated an expense id, continue; else show error
+            if (!event._expenseId) {
+              alert('Failed to create expense: ' + createResp.data.error)
+              return
+            }
+          } else {
+            alert('Failed to create expense: ' + createResp.data.error)
+            return
+          }
         }
       }
 
@@ -1020,20 +1187,68 @@ export default {
       try {
         if (event._userContribution > 0) {
           // user already contributor -> update
+          const payload = {
+            userId: currentUserId.value,
+            expenseId: event._expenseId,
+            newAmount: desired
+          }
+          try {
+            console.log(
+              '[saveContribution] updateContribution payload',
+              payload
+            )
+          } catch (e) {
+            /* ignore logging errors */
+          }
           const upd = await costSplittingAPI.updateContribution(
             currentUserId.value,
             desired,
             event._expenseId
           )
+          try {
+            console.log('[saveContribution] updateContribution response', {
+              eventId: event._id,
+              resp: upd && upd.data ? upd.data : upd
+            })
+          } catch (e) {
+            /* ignore logging errors */
+          }
           if (upd.data?.error) throw new Error(upd.data.error)
         } else {
           // user not contributor yet -> add if desired > 0
           if (desired > 0) {
+            const payload = {
+              userId: currentUserId.value,
+              expenseId: event._expenseId,
+              amount: desired
+            }
+            try {
+              // compute prospective total for debugging
+              const prospective =
+                (event._totalContributed || 0) -
+                (event._userContribution || 0) +
+                desired
+              console.log('[saveContribution] addContribution payload', {
+                payload,
+                prospective,
+                expenseCost: event._expenseCost
+              })
+            } catch (e) {
+              /* ignore logging errors */
+            }
             const add = await costSplittingAPI.addContribution(
               currentUserId.value,
               event._expenseId,
               desired
             )
+            try {
+              console.log('[saveContribution] addContribution response', {
+                eventId: event._id,
+                resp: add && add.data ? add.data : add
+              })
+            } catch (e) {
+              /* ignore logging errors */
+            }
             if (add.data?.error) throw new Error(add.data.error)
           }
         }
@@ -1052,16 +1267,25 @@ export default {
         itinerary.value = itineraryResult.itinerary
         // Normalize events robustly (backend may return wrapped or single-object)
         let loadedEvents = []
-        const maybeEvents = itineraryResult.itinerary && itineraryResult.itinerary.events
+        const maybeEvents =
+          itineraryResult.itinerary && itineraryResult.itinerary.events
         if (Array.isArray(maybeEvents)) loadedEvents = maybeEvents
         else if (maybeEvents && typeof maybeEvents === 'object') {
-          if (Array.isArray(maybeEvents.events)) loadedEvents = maybeEvents.events
+          if (Array.isArray(maybeEvents.events))
+            loadedEvents = maybeEvents.events
           else if (maybeEvents.event) loadedEvents = [maybeEvents.event]
         }
 
         // For each event, try to load poll data
         console.log('Loading vote data for', loadedEvents.length, 'events')
-        for (const event of loadedEvents || []) {
+
+        // Make the events array available to other helpers (and ensureEventReactive)
+        // before we start asynchronously enriching each event. This ensures any
+        // splice/replace operations inside `loadExpenseForEvent` can find the
+        // element in `events.value` and trigger Vue reactivity.
+        events.value = loadedEvents
+
+        for (const event of events.value || []) {
           const eventId = event._id
           console.log('Looking for poll for event ID:', eventId)
 
@@ -1126,9 +1350,7 @@ export default {
           }
         }
 
-        console.log('Final events with vote data:', loadedEvents)
-
-        events.value = loadedEvents
+        console.log('Final events with vote data:', events.value)
       }
     }
 

@@ -369,7 +369,10 @@ export const useTripsStore = defineStore('trips', {
       try {
         const response = await tripPlanningAPI.getTripById(tripId, owner)
         // Backend may return either the trip object directly or a wrapper { trip: { ... } }
-        this.currentTrip = response.data && response.data.trip ? response.data.trip : response.data
+        this.currentTrip =
+          response.data && response.data.trip
+            ? response.data.trip
+            : response.data
         return { success: true }
       } catch (error) {
         this.error =
@@ -396,34 +399,36 @@ export const useTripsStore = defineStore('trips', {
       try {
         const response = await planItineraryAPI.getItineraryByTrip(tripId)
         console.log(response, 'itin')
-      // Backend may return { itinerary } or { itinerary: { itinerary: <doc> } }
-      let itinerary = response.data && response.data.itinerary
-      if (itinerary && itinerary.itinerary) {
-        itinerary = itinerary.itinerary
-      }
-
-      if (!itinerary) {
-        return { success: false, error: 'No itinerary found for this trip' }
-      }
-
-      // Fetch all events for this itinerary; backend responses may wrap events
-      const eventsResponse = await planItineraryAPI.getAllEventsForItinerary(
-        itinerary._id
-      )
-      let events = []
-      if (eventsResponse && eventsResponse.data) {
-        if (Array.isArray(eventsResponse.data)) events = eventsResponse.data
-        else if (eventsResponse.data.events) events = eventsResponse.data.events
-        else if (eventsResponse.data.event) events = [eventsResponse.data.event]
-      }
-
-      return {
-        success: true,
-        itinerary: {
-          ...itinerary,
-          events
+        // Backend may return { itinerary } or { itinerary: { itinerary: <doc> } }
+        let itinerary = response.data && response.data.itinerary
+        if (itinerary && itinerary.itinerary) {
+          itinerary = itinerary.itinerary
         }
-      }
+
+        if (!itinerary) {
+          return { success: false, error: 'No itinerary found for this trip' }
+        }
+
+        // Fetch all events for this itinerary; backend responses may wrap events
+        const eventsResponse = await planItineraryAPI.getAllEventsForItinerary(
+          itinerary._id
+        )
+        let events = []
+        if (eventsResponse && eventsResponse.data) {
+          if (Array.isArray(eventsResponse.data)) events = eventsResponse.data
+          else if (eventsResponse.data.events)
+            events = eventsResponse.data.events
+          else if (eventsResponse.data.event)
+            events = [eventsResponse.data.event]
+        }
+
+        return {
+          success: true,
+          itinerary: {
+            ...itinerary,
+            events
+          }
+        }
       } catch (error) {
         this.error = error.response?.data?.error || 'Failed to fetch itinerary'
         return { success: false, error: this.error }
@@ -489,16 +494,21 @@ export const useTripsStore = defineStore('trips', {
     async getParticipantsInTrip(tripId) {
       try {
         const response = await tripPlanningAPI.getParticipantsInTrip(tripId)
-      // Backend may return either an array (legacy) or an object { participants: [...] }
-      let participants = []
-      if (response && response.data) {
-        if (Array.isArray(response.data)) participants = response.data
-        else if (Array.isArray(response.data.participants)) participants = response.data.participants
-        else if (response.data.participants && Array.isArray(response.data.participants)) participants = response.data.participants
-        else participants = response.data
-      }
+        // Backend may return either an array (legacy) or an object { participants: [...] }
+        let participants = []
+        if (response && response.data) {
+          if (Array.isArray(response.data)) participants = response.data
+          else if (Array.isArray(response.data.participants))
+            participants = response.data.participants
+          else if (
+            response.data.participants &&
+            Array.isArray(response.data.participants)
+          )
+            participants = response.data.participants
+          else participants = response.data
+        }
 
-      return { success: true, participants }
+        return { success: true, participants }
       } catch (error) {
         return {
           success: false,
@@ -511,56 +521,91 @@ export const useTripsStore = defineStore('trips', {
     async createEventPoll(eventId, tripParticipants, creatorId) {
       try {
         console.log('Creating poll for event:', eventId)
-
-        // Create poll with name = event-{eventId} (stores event association)
+        // The backend creates event polls automatically via a sync when
+        // an event is added. To avoid races and duplicate creations we wait
+        // for the server to attach the poll id to the event document and
+        // then fetch the poll by id. This enforces server-only creation
+        // while avoiding timing races.
         const pollName = `event-${eventId}`
-        const pollResponse = await pollingAPI.create(creatorId, pollName)
 
-        if (!pollResponse.data.poll) {
-          throw new Error('No poll ID returned')
+        // helper sleep
+        const sleep = ms => new Promise(res => setTimeout(res, ms))
+
+        // Poll the event document until the server attaches the poll id
+        let pollData = null
+        let pollId = null
+        const maxAttempts = 12
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            const eventResp = await planItineraryAPI.getEventById(eventId)
+            // backend responses may wrap the event in different shapes
+            let ev =
+              eventResp &&
+              eventResp.data &&
+              (eventResp.data.event || eventResp.data)
+            if (ev && ev.event) ev = ev.event
+            if (ev && ev.poll) {
+              pollId = ev.poll
+              console.debug(
+                '[createEventPoll] found attached poll on event',
+                eventId,
+                'pollId',
+                pollId,
+                'attempt',
+                attempt
+              )
+              break
+            }
+          } catch (err) {
+            console.debug(
+              '[createEventPoll] getEventById attempt',
+              attempt,
+              'error',
+              err && err.response ? err.response.data : err
+            )
+          }
+          // backoff delay
+          await sleep(150 * attempt)
         }
-        console.log(pollResponse, 'created')
 
-        // Backend returns the poll _id (use this for all operations)
-        const pollId = pollResponse.data.poll
-        console.log('Poll created - ID:', pollId, 'Name:', pollName)
+        if (!pollId) {
+          console.error(
+            '[createEventPoll] poll not found after retries; aborting (server-only creation)'
+          )
+          throw new Error(
+            `Poll not found after server-side creation window. Poll name: ${pollName}`
+          )
+        }
 
-        // Add Yes and No options dynamically
-        await pollingAPI.addOption(creatorId, pollId, 'Yes')
-        await pollingAPI.addOption(creatorId, pollId, 'No')
-
-        console.log('added')
-
-        // Fetch poll to get the generated option IDs (getPoll searches by name, not _id)
-        const pollDataResponse = await pollingAPI.getPoll(pollName)
-        console.log(pollDataResponse, 'polldatares')
-        const pollData = pollDataResponse.data.poll
-
-        if (!pollData) {
+        // Fetch the poll document (by id first, fallback to name)
+        try {
+          const pollResp = await pollingAPI.getPoll(pollId || pollName)
+          pollData = pollResp.data.poll
+        } catch (err) {
+          console.debug(
+            '[createEventPoll] failed to fetch poll document after attach',
+            err && err.response ? err.response.data : err
+          )
           throw new Error(
             `Poll not found after creation. Poll name: ${pollName}`
           )
         }
 
-        if (!pollData.options || pollData.options.length === 0) {
-          throw new Error(
-            `Poll has no options. Poll name: ${pollName}, Poll data: ${JSON.stringify(pollData)}`
-          )
-        }
+        // Ensure Yes/No options exist; add if missing
+        const existingOptions = pollData.options || []
+        const yesOption = existingOptions.find(o => o.label === 'Yes')
+        const noOption = existingOptions.find(o => o.label === 'No')
 
-        const yesOption = pollData.options.find(opt => opt.label === 'Yes')
-        const noOption = pollData.options.find(opt => opt.label === 'No')
+        if (!yesOption)
+          await pollingAPI.addOption(creatorId, pollData._id, 'Yes')
+        if (!noOption) await pollingAPI.addOption(creatorId, pollData._id, 'No')
 
-        if (!yesOption || !noOption) {
-          throw new Error('Failed to find Yes/No options')
-        }
-
-        console.log(
-          'Options created - Yes ID:',
-          yesOption._id,
-          'No ID:',
-          noOption._id
-        )
+        // Refresh options after potential additions
+        const withOptions = (await pollingAPI.getPoll(pollData._id || pollName))
+          .data.poll
+        const finalOptions = withOptions.options || []
+        const finalYes = finalOptions.find(o => o.label === 'Yes')
+        const finalNo = finalOptions.find(o => o.label === 'No')
 
         // Add all trip participants to the poll (normalize participant shape)
         const failedAdds = []
@@ -573,15 +618,13 @@ export const useTripsStore = defineStore('trips', {
           try {
             const addResp = await pollingAPI.addUser(
               creatorId,
-              pollId,
+              pollData._id,
               participantId
             )
-            // If backend returns an error payload, record it
             if (addResp?.data?.error) {
               failedAdds.push({ participantId, error: addResp.data.error })
             }
           } catch (err) {
-            // Record failure but continue adding others
             failedAdds.push({
               participantId,
               error: err.response?.data?.error || err.message
@@ -590,14 +633,14 @@ export const useTripsStore = defineStore('trips', {
           }
         }
 
-        // Store mapping from event ID to poll ID
-        this.eventPollMap[eventId] = pollId
+        // Store mapping from event ID to poll ID for quick access
+        this.eventPollMap[eventId] = pollData._id
 
         return {
           success: true,
-          pollId,
-          yesOptionId: yesOption._id,
-          noOptionId: noOption._id,
+          pollId: pollData._id,
+          yesOptionId: finalYes?._id || null,
+          noOptionId: finalNo?._id || null,
           failedAdds
         }
       } catch (error) {

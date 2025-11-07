@@ -139,8 +139,29 @@ export const tripPlanningAPI = {
 export const planItineraryAPI = {
   create: trip => api.post('/ItineraryPlanner/create', { trip }),
 
-  addEvent: (name, cost, itinerary) =>
-    api.post('/ItineraryPlanner/addEvent', { name, cost, itinerary }),
+  addEvent: (name, cost, itinerary) => {
+    console.debug('[api] POST /ItineraryPlanner/addEvent', {
+      name,
+      cost,
+      itinerary
+    })
+    return api
+      .post('/ItineraryPlanner/addEvent', { name, cost, itinerary })
+      .then(res => {
+        console.debug(
+          '[api] POST /ItineraryPlanner/addEvent response',
+          res && res.data ? res.data : res
+        )
+        return res
+      })
+      .catch(err => {
+        console.error(
+          '[api] POST /ItineraryPlanner/addEvent error',
+          err && err.response ? err.response.data : err
+        )
+        throw err
+      })
+  },
 
   updateEvent: (event, name, cost, itinerary) =>
     api.post('/ItineraryPlanner/updateEvent', { event, name, cost, itinerary }),
@@ -205,7 +226,23 @@ export const costSplittingAPI = {
 // Polling API
 export const pollingAPI = {
   create: (user, name) => {
-    return api.post('/Polling/create', { user, name })
+    console.debug('[api] POST /Polling/create', { user, name })
+    return api
+      .post('/Polling/create', { user, name })
+      .then(res => {
+        console.debug(
+          '[api] POST /Polling/create response',
+          res && res.data ? res.data : res
+        )
+        return res
+      })
+      .catch(err => {
+        console.error(
+          '[api] POST /Polling/create error',
+          err && err.response ? err.response.data : err
+        )
+        throw err
+      })
   },
 
   addOption: (actingUser, poll, label) =>
