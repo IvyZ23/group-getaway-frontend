@@ -135,151 +135,18 @@
           />
 
           <div v-else class="events-list">
-            <div
+            <EventCard
               v-for="event in events"
               :key="event._id"
-              class="event-card"
-              :class="{
-                pending: event.pending,
-                approved: event.approved && !event.pending,
-                rejected: !event.approved && !event.pending
-              }"
-            >
-              <div class="event-header">
-                <h3 class="event-name">{{ event.name }}</h3>
-                <span class="event-status">
-                  <span v-if="event.pending" class="status-badge pending"
-                    >⏳ Pending</span
-                  >
-                  <span v-else-if="event.approved" class="status-badge approved"
-                    >✅ Approved</span
-                  >
-                  <span v-else class="status-badge rejected">❌ Rejected</span>
-                </span>
-              </div>
-              <p class="event-cost">💰 Cost: ${{ event.cost }}</p>
-
-              <!-- Cost splitting UI (only for approved/confirmed events) -->
-              <div v-if="event.approved" class="cost-splitting">
-                <div class="cost-summary">
-                  <div>
-                    Total contributed: ${{ event._totalContributed || 0 }}
-                  </div>
-                  <div>
-                    Remaining: ${{
-                      Math.max(
-                        (event._expenseCost || event.cost) -
-                          (event._totalContributed || 0),
-                        0
-                      )
-                    }}
-                  </div>
-                </div>
-
-                <div class="contribute-row">
-                  <label class="contrib-label">Your contribution:</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    class="contrib-input"
-                    v-model.number="event._userContributionEdit"
-                    :disabled="
-                      event._expenseCovered && event._userContribution === 0
-                    "
-                  />
-                  <button
-                    class="contrib-save-btn"
-                    @click="saveContribution(event)"
-                    :disabled="
-                      event._expenseCovered && event._userContribution === 0
-                    "
-                  >
-                    {{ event._userContribution > 0 ? 'Update' : 'Contribute' }}
-                  </button>
-                </div>
-
-                <div class="contributors-list" v-if="event._contributors">
-                  <h4 style="margin: 0.6rem 0 0.4rem 0; font-size: 0.95rem">
-                    Contributors
-                  </h4>
-                  <div
-                    v-if="event._contributors.length === 0"
-                    class="no-contributors"
-                  >
-                    No contributors yet
-                  </div>
-                  <ul v-else class="contributors-items">
-                    <li
-                      v-for="c in event._contributors"
-                      :key="c.userId"
-                      class="contributor-item"
-                    >
-                      <span class="contributor-name">{{
-                        c.displayName || `User ${c.userId}`
-                      }}</span>
-                      <span class="contributor-amount">— ${{ c.amount }}</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-
-              <!-- Voting Section (only for pending events) -->
-              <PollWidget
-                v-if="event.pending && event.poll && event.poll._id"
-                :poll-id="event.poll._id"
-                :options="event.poll.options"
-                :user-vote-option-id="event.poll.userVoteOptionId"
-                :total-votes="event.poll.totalVotes"
-                :closed="false"
-                @vote="optionId => handleGenericVote(event, optionId)"
-              />
-
-              <!-- Vote Results (for approved/rejected events) -->
-              <div
-                v-else-if="!event.pending && event.poll"
-                class="vote-results"
-              >
-                <span class="results-label">Final votes:</span>
-                <div class="vote-counts">
-                  <span
-                    v-for="opt in event.poll.options"
-                    :key="opt._id"
-                    class="vote-count"
-                    :class="{
-                      yes: opt.label.toLowerCase() === 'yes',
-                      no: opt.label.toLowerCase() === 'no'
-                    }"
-                  >
-                    {{ opt.label }}: {{ opt.count }}
-                  </span>
-                </div>
-              </div>
-
-              <div class="event-actions">
-                <button
-                  v-if="event.pending && isOwner"
-                  @click="handleApproveEvent(event._id, event.poll?._id, true)"
-                  class="approve-btn"
-                >
-                  Approve
-                </button>
-                <button
-                  v-if="event.pending && isOwner"
-                  @click="handleApproveEvent(event._id, event.poll?._id, false)"
-                  class="reject-btn"
-                >
-                  Reject
-                </button>
-                <button
-                  v-if="isOwner"
-                  @click="handleRemoveEvent(event._id)"
-                  class="delete-btn"
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+              :event="event"
+              :is-owner="isOwner"
+              :current-user-id="currentUserId"
+              @save-contribution="saveContribution"
+              @update-user-contrib="val => (event._userContributionEdit = val)"
+              @vote="optionId => handleGenericVote(event, optionId)"
+              @approve-event="payload => handleApproveEvent(payload.eventId, payload.pollId, payload.approved)"
+              @remove-event="handleRemoveEvent"
+            />
           </div>
         </div>
       </div>
@@ -429,6 +296,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import Modal from '@/components/Modal.vue'
 import FormInput from '@/components/FormInput.vue'
 import PollWidget from '@/components/PollWidget.vue'
+import EventCard from '@/components/EventCard.vue'
 
 export default {
   name: 'TripDetail',
@@ -437,7 +305,8 @@ export default {
     EmptyState,
     Modal,
     FormInput,
-    PollWidget
+    PollWidget,
+    EventCard
   },
   setup() {
     const route = useRoute()
