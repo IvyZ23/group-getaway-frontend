@@ -672,14 +672,20 @@ export const useTripsStore = defineStore('trips', {
           )
         }
 
-        // Ensure Yes/No options exist; add if missing
+        // Ensure Yes/No options exist; add if missing.
+        // Use the poll's actual creator (set by the server) as the acting user
+        // when adding options or users. Fall back to the provided creatorId
+        // parameter only if the server doesn't expose a creator.
         const existingOptions = pollData.options || []
         const yesOption = existingOptions.find(o => o.label === 'Yes')
         const noOption = existingOptions.find(o => o.label === 'No')
 
+        const actingUser = pollData.creator || creatorId
+
         if (!yesOption)
-          await pollingAPI.addOption(creatorId, pollData._id, 'Yes')
-        if (!noOption) await pollingAPI.addOption(creatorId, pollData._id, 'No')
+          await pollingAPI.addOption(actingUser, pollData._id, 'Yes')
+        if (!noOption)
+          await pollingAPI.addOption(actingUser, pollData._id, 'No')
 
         // Refresh options after potential additions
         const withOptions = (await pollingAPI.getPoll(pollData._id || pollName))
@@ -694,11 +700,11 @@ export const useTripsStore = defineStore('trips', {
           const participantId =
             (participant && (participant.user || participant)) || null
           if (!participantId) continue
-          if (participantId === creatorId) continue
+          if (participantId === actingUser) continue
 
           try {
             const addResp = await pollingAPI.addUser(
-              creatorId,
+              actingUser,
               pollData._id,
               participantId
             )
