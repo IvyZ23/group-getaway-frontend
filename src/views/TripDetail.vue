@@ -144,7 +144,14 @@
               @save-contribution="saveContribution"
               @update-user-contrib="val => (event._userContributionEdit = val)"
               @vote="optionId => handleGenericVote(event, optionId)"
-              @approve-event="payload => handleApproveEvent(payload.eventId, payload.pollId, payload.approved)"
+              @approve-event="
+                payload =>
+                  handleApproveEvent(
+                    payload.eventId,
+                    payload.pollId,
+                    payload.approved
+                  )
+              "
               @remove-event="handleRemoveEvent"
             />
           </div>

@@ -3,8 +3,12 @@
     <div class="event-header">
       <h3 class="event-name">{{ event.name }}</h3>
       <span class="event-status">
-        <span v-if="event.pending" class="status-badge pending">⏳ Pending</span>
-        <span v-else-if="event.approved" class="status-badge approved">✅ Approved</span>
+        <span v-if="event.pending" class="status-badge pending"
+          >⏳ Pending</span
+        >
+        <span v-else-if="event.approved" class="status-badge approved"
+          >✅ Approved</span
+        >
         <span v-else class="status-badge rejected">❌ Rejected</span>
       </span>
     </div>
@@ -14,11 +18,15 @@
     <!-- Cost splitting UI -->
     <div v-if="event.approved" class="cost-splitting">
       <div class="cost-summary">
+        <div>Total contributed: ${{ event._totalContributed || 0 }}</div>
         <div>
-          Total contributed: ${{ event._totalContributed || 0 }}
-        </div>
-        <div>
-          Remaining: ${{ Math.max((event._expenseCost || event.cost) - (event._totalContributed || 0), 0) }}
+          Remaining: ${{
+            Math.max(
+              (event._expenseCost || event.cost) -
+                (event._totalContributed || 0),
+              0
+            )
+          }}
         </div>
       </div>
 
@@ -43,11 +51,21 @@
       </div>
 
       <div class="contributors-list" v-if="event._contributors">
-        <h4 style="margin: 0.6rem 0 0.4rem 0; font-size: 0.95rem">Contributors</h4>
-        <div v-if="event._contributors.length === 0" class="no-contributors">No contributors yet</div>
+        <h4 style="margin: 0.6rem 0 0.4rem 0; font-size: 0.95rem">
+          Contributors
+        </h4>
+        <div v-if="event._contributors.length === 0" class="no-contributors">
+          No contributors yet
+        </div>
         <ul v-else class="contributors-items">
-          <li v-for="c in event._contributors" :key="c.userId" class="contributor-item">
-            <span class="contributor-name">{{ c.displayName || `User ${c.userId}` }}</span>
+          <li
+            v-for="c in event._contributors"
+            :key="c.userId"
+            class="contributor-item"
+          >
+            <span class="contributor-name">{{
+              c.displayName || `User ${c.userId}`
+            }}</span>
             <span class="contributor-amount">— ${{ c.amount }}</span>
           </li>
         </ul>
@@ -68,16 +86,54 @@
     <div v-else-if="!event.pending && event.poll" class="vote-results">
       <span class="results-label">Final votes:</span>
       <div class="vote-counts">
-        <span v-for="opt in event.poll.options" :key="opt._id" class="vote-count" :class="{ yes: opt.label.toLowerCase() === 'yes', no: opt.label.toLowerCase() === 'no' }">
+        <span
+          v-for="opt in event.poll.options"
+          :key="opt._id"
+          class="vote-count"
+          :class="{
+            yes: opt.label.toLowerCase() === 'yes',
+            no: opt.label.toLowerCase() === 'no'
+          }"
+        >
           {{ opt.label }}: {{ opt.count }}
         </span>
       </div>
     </div>
 
     <div class="event-actions">
-      <button v-if="event.pending && isOwner" @click="$emit('approve-event', { eventId: event._id, pollId: event.poll?._id, approved: true })" class="approve-btn">Approve</button>
-      <button v-if="event.pending && isOwner" @click="$emit('approve-event', { eventId: event._id, pollId: event.poll?._id, approved: false })" class="reject-btn">Reject</button>
-      <button v-if="isOwner" @click="$emit('remove-event', event._id)" class="delete-btn">Delete</button>
+      <button
+        v-if="event.pending && isOwner"
+        @click="
+          $emit('approve-event', {
+            eventId: event._id,
+            pollId: event.poll?._id,
+            approved: true
+          })
+        "
+        class="approve-btn"
+      >
+        Approve
+      </button>
+      <button
+        v-if="event.pending && isOwner"
+        @click="
+          $emit('approve-event', {
+            eventId: event._id,
+            pollId: event.poll?._id,
+            approved: false
+          })
+        "
+        class="reject-btn"
+      >
+        Reject
+      </button>
+      <button
+        v-if="isOwner"
+        @click="$emit('remove-event', event._id)"
+        class="delete-btn"
+      >
+        Delete
+      </button>
     </div>
   </div>
 </template>
@@ -95,11 +151,16 @@ export default {
     currentUserId: { type: [String, Number], default: null }
   },
   setup(props, { emit }) {
-    const localContribution = ref(props.event._userContributionEdit ?? props.event._userContribution ?? 0)
+    const localContribution = ref(
+      props.event._userContributionEdit ?? props.event._userContribution ?? 0
+    )
 
-    watch(() => props.event._userContributionEdit, v => {
-      localContribution.value = v ?? props.event._userContribution ?? 0
-    })
+    watch(
+      () => props.event._userContributionEdit,
+      v => {
+        localContribution.value = v ?? props.event._userContribution ?? 0
+      }
+    )
 
     const onContributionInput = v => {
       const num = Number(v)

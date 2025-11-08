@@ -63,6 +63,47 @@ export const useTripsStore = defineStore('trips', {
 
       try {
         const { name, destination, owner, dateRange } = tripData
+
+        // Client-side validation: required fields
+        if (!name || typeof name !== 'string' || !name.trim()) {
+          this.error = 'Trip name is required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (
+          !destination ||
+          typeof destination !== 'string' ||
+          !destination.trim()
+        ) {
+          this.error = 'Destination is required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (!dateRange || !('start' in dateRange) || !('end' in dateRange)) {
+          this.error = 'Start and end dates are required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+
+        // Normalize dates and validate ordering
+        const start =
+          dateRange.start instanceof Date
+            ? dateRange.start
+            : new Date(dateRange.start)
+        const end =
+          dateRange.end instanceof Date
+            ? dateRange.end
+            : new Date(dateRange.end)
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          this.error = 'Invalid start or end date.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (start.getTime() > end.getTime()) {
+          this.error = 'Start date must be before or equal to end date.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
         const response = await tripPlanningAPI.create(
           name,
           destination,
@@ -317,11 +358,51 @@ export const useTripsStore = defineStore('trips', {
 
       try {
         const { name, destination, dateRange } = updates
+
+        // Client-side validation mirrors server rules
+        if (!name || typeof name !== 'string' || !name.trim()) {
+          this.error = 'Trip name is required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (
+          !destination ||
+          typeof destination !== 'string' ||
+          !destination.trim()
+        ) {
+          this.error = 'Destination is required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (!dateRange || !('start' in dateRange) || !('end' in dateRange)) {
+          this.error = 'Start and end dates are required.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        const start =
+          dateRange.start instanceof Date
+            ? dateRange.start
+            : new Date(dateRange.start)
+        const end =
+          dateRange.end instanceof Date
+            ? dateRange.end
+            : new Date(dateRange.end)
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          this.error = 'Invalid start or end date.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+        if (start.getTime() > end.getTime()) {
+          this.error = 'Start date must be before or equal to end date.'
+          alert(this.error)
+          return { success: false, error: this.error }
+        }
+
         await tripPlanningAPI.update(
           owner,
           tripId,
           destination,
-          dateRange,
+          { start, end },
           name
         )
 

@@ -239,7 +239,27 @@ export default {
     }
 
     const handleCreateTrip = async () => {
-      if (!newTrip.name.trim() || !newTrip.destination.trim()) return
+      // Basic inline validation so the user gets immediate feedback
+      if (!newTrip.name || !newTrip.name.trim()) {
+        alert('Please enter a trip name')
+        return
+      }
+      if (!newTrip.destination || !newTrip.destination.trim()) {
+        alert('Please enter a destination')
+        return
+      }
+
+      // Validate date ordering if dates were provided
+      if (newTrip.startDate && newTrip.endDate) {
+        const s = new Date(newTrip.startDate)
+        const e = new Date(newTrip.endDate)
+        if (Number.isFinite(s.getTime()) && Number.isFinite(e.getTime())) {
+          if (s.getTime() > e.getTime()) {
+            alert('Start date must be the same or before the end date')
+            return
+          }
+        }
+      }
 
       creatingTrip.value = true
 
