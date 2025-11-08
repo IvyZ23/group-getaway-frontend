@@ -3,13 +3,13 @@
     <div class="trip-header">
       <h3 class="trip-name">{{ trip.name }}</h3>
       <div class="trip-actions" @click.stop v-if="isOwner">
-        <button
+        <!-- <button
           @click="$emit('edit', trip)"
           class="action-btn edit"
           title="Edit trip"
         >
           ✏️
-        </button>
+        </button> -->
         <button
           @click="$emit('delete', trip)"
           class="action-btn delete"
