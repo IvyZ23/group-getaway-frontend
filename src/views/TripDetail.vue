@@ -1021,7 +1021,9 @@ export default {
             expensesCount: expenses.length,
             expense
           })
-        } catch (e) {/* ignore */}
+        } catch (e) {
+          /* ignore */
+        }
 
         if (expense) {
           event._expenseId = expense._id || expense.expenseId || expense.id
@@ -1083,7 +1085,9 @@ export default {
               eventId: event._id,
               event
             })
-          } catch (e) {/* ignore */}
+          } catch (e) {
+            /* ignore */
+          }
 
           // user contribution
           try {

@@ -30,10 +30,14 @@ api.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
-      // On 401 we redirect to login. Don't rely on localStorage token here
-      // since authentication should be cookie-based. If you still store
-      // additional client state, clear it explicitly in your auth store.
-      window.location.href = '/login'
+      // Do not automatically redirect here — let the app's navigation
+      // guard (`router.beforeEach`) or auth store decide how to handle
+      // unauthenticated state. Automatic redirects from an interceptor
+      // can cause navigation loops when multiple requests race and the
+      // router also redirects on auth failure.
+      console.warn(
+        '[api] received 401 — rejecting and deferring redirect to router/auth store'
+      )
     }
     return Promise.reject(error)
   }
